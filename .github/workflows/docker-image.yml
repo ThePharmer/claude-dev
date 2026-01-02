@@ -1,0 +1,40 @@
+name: Build and Push Images
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    strategy:
+      matrix:
+        include:
+          - context: ./claude-code
+            image: claude-dev
+          - context: ./claude-proxy
+            image: claude-proxy
+          - context: ./claude-datasette
+            image: claude-datasette
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: |
+            ghcr.io/thepharmer/${{ matrix.image }}:latest
+            ghcr.io/thepharmer/${{ matrix.image }}:${{ github.sha }}
