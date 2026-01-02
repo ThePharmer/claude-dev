@@ -12,7 +12,7 @@ services:
       dockerfile: Dockerfile
 
   claude-code:
-    image: ghcr.io/thepharmer/claude-container:${CLAUDE_CONTAINER_VERSION:-latest}
+    image: ghcr.io/thepharmer/claude-dev:${CLAUDE_CONTAINER_VERSION:-latest}
     build:
       context: ./claude-code
       dockerfile: Dockerfile
