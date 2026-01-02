@@ -17,14 +17,7 @@ CMD ["/usr/sbin/sshd", "-D"]
 # Create directories
 RUN mkdir -p /claude /workspace
 
-# Copy entrypoint script
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
-
 # Set working directory
 WORKDIR /workspace
-
-# Set entrypoint
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 CMD ["sh", "-c", "echo 'Claude Code container is ready!'"]
