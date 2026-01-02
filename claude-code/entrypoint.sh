@@ -44,7 +44,7 @@ fi
 # Fix SSH directory permissions
 chown "$USER_UID:$USER_GID" /home/node/.ssh
 chmod 700 /home/node/.ssh
-chmod 600 /home/node/.ssh/authorized_keys
+chmod 600 /home/node/.ssh/authorized_keys 2>/dev/null || true
 
 # Fix ownership of config directory
 if [ -d /claude ]; then
