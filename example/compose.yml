@@ -19,7 +19,7 @@ services:
       - claude-proxy
 
   claude-code:
-    image: ghcr.io/thepharmer/claude-container:latest
+    image: ghcr.io/thepharmer/claude-dev:latest
     volumes:
       - ./workspace:/workspace
       - ./claude-config:/claude
