@@ -53,8 +53,8 @@ if [ -d /claude ]; then
 fi
 
 # Ensure workspace is accessible (don't recursive chown - host owns the files)
-if [ -d /workspace ]; then
-    chmod 755 /workspace 2>/dev/null || true
+if [ -d /srv ]; then
+    chmod 755 /srv 2>/dev/null || true
 fi
 
 KEY_COUNT=$(wc -l < /home/node/.ssh/authorized_keys)

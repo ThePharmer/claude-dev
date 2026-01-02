@@ -5,14 +5,15 @@ RUN apk add --no-cache git su-exec openssh-server bash \
     && mkdir -p /home/node/.ssh \
     && chown node:node /home/node/.ssh \
     && sed -i 's|/home/node:/sbin/nologin|/home/node:/bin/bash|' /etc/passwd \
+    && passwd -u node 2>/dev/null || passwd -d node \
     && echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config \
     && echo "PasswordAuthentication no" >> /etc/ssh/sshd_config \
     && echo "AuthorizedKeysFile .ssh/authorized_keys" >> /etc/ssh/sshd_config
 
 RUN npm install -g @anthropic-ai/claude-code
 
-RUN mkdir -p /claude /workspace
-WORKDIR /workspace
+RUN mkdir -p /claude /srv
+WORKDIR /srv
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
