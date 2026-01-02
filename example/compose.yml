@@ -4,27 +4,35 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./proxy-data:/data
+      - proxy-data:/data
     environment:
       TARGET_API_URL: https://api.anthropic.com
+    restart: unless-stopped
 
   claude-datasette:
     image: ghcr.io/thepharmer/claude-datasette:latest
     ports:
       - "8001:8001"
     volumes:
-      - ./proxy-data:/data:ro
+      - proxy-data:/data:ro
       - ./datasette-metadata.json:/app/metadata.json:ro
     depends_on:
       - claude-proxy
+    restart: unless-stopped
 
   claude-code:
     image: ghcr.io/thepharmer/claude-dev:latest
     volumes:
-      - ./workspace:/workspace
-      - ./claude-config:/claude
+      - /srv:/workspace
+      - claude-config:/claude
+      - /srv/docker/claude-dev/authorized_keys:/home/node/.ssh/authorized_keys:ro
     environment:
       CLAUDE_CONFIG_DIR: /claude
       ANTHROPIC_BASE_URL: http://claude-proxy:8080
     depends_on:
       - claude-proxy
+    restart: unless-stopped
+
+volumes:
+  claude-config:
+  proxy-data:
