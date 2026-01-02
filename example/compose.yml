@@ -1,6 +1,6 @@
 services:
   claude-proxy:
-    image: nezhar/claude-proxy:latest
+    image: ghcr.io/thepharmer/claude-proxy:latest
     ports:
       - "8080:8080"
     volumes:
@@ -9,7 +9,7 @@ services:
       TARGET_API_URL: https://api.anthropic.com
 
   claude-datasette:
-    image: nezhar/claude-datasette:latest
+    image: ghcr.io/thepharmer/claude-datasette:latest
     ports:
       - "8001:8001"
     volumes:
@@ -19,7 +19,7 @@ services:
       - claude-proxy
 
   claude-code:
-    image: nezhar/claude-container:latest
+    image: ghcr.io/thepharmer/claude-container:latest
     volumes:
       - ./workspace:/workspace
       - ./claude-config:/claude
