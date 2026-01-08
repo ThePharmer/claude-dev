@@ -9,6 +9,7 @@ RUN apk add --no-cache git su-exec openssh-server bash \
     && echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config \
     && echo "PasswordAuthentication no" >> /etc/ssh/sshd_config \
     && echo "AuthorizedKeysFile .ssh/authorized_keys" >> /etc/ssh/sshd_config
+    && echo "export CLAUDE_CONFIG_DIR=/claude" >> /etc/profile
 
 RUN npm install -g @anthropic-ai/claude-code
 
