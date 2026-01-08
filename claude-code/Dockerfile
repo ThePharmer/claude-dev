@@ -1,6 +1,6 @@
 FROM node:24-alpine
 
-RUN apk add --no-cache git su-exec openssh-server bash \
+RUN apk add --no-cache git su-exec openssh-server bash mosh \
     && ssh-keygen -A \
     && mkdir -p /home/node/.ssh \
     && chown node:node /home/node/.ssh \
