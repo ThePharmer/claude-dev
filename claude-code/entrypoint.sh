@@ -63,4 +63,5 @@ echo "User: node (UID=$USER_UID, GID=$USER_GID)"
 echo "Starting SSHD on port 22..."
 echo "=========================================="
 
+export SHELL=/bin/bash
 exec /usr/sbin/sshd -D -e
