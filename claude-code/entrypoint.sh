@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # Entrypoint script for Claude Code SSH container
 # Handles dynamic UID/GID mapping and SSH daemon startup
