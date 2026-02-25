@@ -12,7 +12,7 @@ Three Docker images are available on Docker Hub, all released with matching vers
 
 | Image | Purpose | Base |
 |-------|---------|------|
-| [nezhar/claude-container](https://hub.docker.com/r/nezhar/claude-container) | Main container with Claude Code CLI pre-installed | Node.js 22 Alpine |
+| [nezhar/claude-container](https://hub.docker.com/r/nezhar/claude-container) | Main container with Claude Code CLI pre-installed | Alpine 3.20 |
 | [nezhar/claude-proxy](https://hub.docker.com/r/nezhar/claude-proxy) | Optional HTTP proxy that logs all API requests to SQLite | Python 3.12 Alpine |
 | [nezhar/claude-datasette](https://hub.docker.com/r/nezhar/claude-datasette) | Optional web UI for visualizing and querying logged requests | Datasette + plugins |
 
@@ -47,15 +47,34 @@ When using all three images together, the request flow looks like this:
 
 ## Compatibility Matrix
 
-**Latest Release:** 1.4.9 (Claude Code 2.0.76)
+**Latest Release:** 2.0.0
 
-| Container Version | Claude Code Version |
-|-------------------|---------------------|
-| 1.0.x             | 1.0.x               |
-| 1.1.x             | 2.0.x               |
-| 1.2.x             | 2.0.x               |
-| 1.3.x             | 2.0.x               |
-| 1.4.x             | 2.0.x               |
+| Container Version | Claude Code Version | Notes |
+|-------------------|---------------------|-------|
+| 2.0.x             | 2.x (native binary) | Alpine 3.20, native installer |
+| 1.0.x–1.4.x      | 1.0.x–2.0.x (npm)   | Node.js Alpine, npm install (deprecated) |
+
+## Migration from v1.x to v2.0
+
+v2.0 switches from npm-based installation (`node:24-alpine`) to Anthropic's native binary installer (`alpine:3.20`). This drops the Node.js dependency, shrinks the image, and aligns with the officially supported installation path.
+
+**Breaking change:** The container user changed from `node` to `claude`. Update your `authorized_keys` mount path:
+
+```yaml
+# Old (v1.x):
+- /path/to/authorized_keys:/home/node/.ssh/authorized_keys:ro
+# New (v2.0):
+- /path/to/authorized_keys:/home/claude/.ssh/authorized_keys:ro
+```
+
+All other volume mounts (`/claude`, `/srv`, etc.) and environment variables remain unchanged.
+
+**Manual in-container updates:** The auto-updater is disabled by default (`DISABLE_AUTOUPDATER=1`) to avoid a known 0-byte file bug. To update Claude Code between image rebuilds:
+
+```bash
+# SSH into the container, then:
+DISABLE_AUTOUPDATER=0 claude update
+```
 
 ## Quick Start
 
