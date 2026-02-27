@@ -20,13 +20,11 @@ CURRENT_GID=$(id -g claude)
 
 if [ "$USER_GID" -ne "$CURRENT_GID" ]; then
     echo "Remapping claude group GID from $CURRENT_GID to $USER_GID"
-    sed -i "s/claude:x:$CURRENT_GID:/claude:x:$USER_GID:/" /etc/group
-    sed -i "s/claude:x:$CURRENT_UID:$CURRENT_GID:/claude:x:$CURRENT_UID:$USER_GID:/" /etc/passwd
+    groupmod -g "$USER_GID" claude
 fi
-
 if [ "$USER_UID" -ne "$CURRENT_UID" ]; then
     echo "Remapping claude user UID from $CURRENT_UID to $USER_UID"
-    sed -i "s/claude:x:$CURRENT_UID:/claude:x:$USER_UID:/" /etc/passwd
+    usermod -u "$USER_UID" claude
 fi
 
 # Validate SSH setup
