@@ -5,7 +5,7 @@ ARG CLAUDE_CODE_VERSION=""
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       git openssh-server bash mosh sudo curl ca-certificates \
-      ripgrep gosu \
+      ripgrep nodejs npm \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /run/sshd \
     && ssh-keygen -A
@@ -19,11 +19,12 @@ RUN groupadd -g 1000 claude \
     && echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config \
     && echo "PasswordAuthentication no" >> /etc/ssh/sshd_config \
     && echo "AuthorizedKeysFile .ssh/authorized_keys" >> /etc/ssh/sshd_config \
-    && echo 'export PATH="/home/claude/.local/bin:$PATH"' >> /etc/profile \
+    && echo 'export PATH="/home/claude/.local/bin:/home/claude/.bun/bin:$PATH"' >> /etc/profile
     && echo "claude ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/claude
 
 # Install native binary as claude user
 USER claude
+RUN curl -fsSL https://bun.sh/install | bash
 RUN if [ -n "$CLAUDE_CODE_VERSION" ]; then \
       curl -fsSL https://claude.ai/install.sh | bash -s "$CLAUDE_CODE_VERSION"; \
     else \
