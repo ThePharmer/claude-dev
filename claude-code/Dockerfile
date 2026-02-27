@@ -19,7 +19,7 @@ RUN groupadd -g 1000 claude \
     && echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config \
     && echo "PasswordAuthentication no" >> /etc/ssh/sshd_config \
     && echo "AuthorizedKeysFile .ssh/authorized_keys" >> /etc/ssh/sshd_config \
-    && echo 'export PATH="/home/claude/.local/bin:/home/claude/.bun/bin:$PATH"' >> /etc/profile
+    && echo 'export PATH="/home/claude/.local/bin:/home/claude/.bun/bin:$PATH"' >> /etc/profile \
     && echo "claude ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/claude
 
 # Install native binary as claude user
