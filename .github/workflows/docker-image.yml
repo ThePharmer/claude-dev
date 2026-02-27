@@ -38,3 +38,8 @@ jobs:
           tags: |
             ghcr.io/thepharmer/${{ matrix.image }}:latest
             ghcr.io/thepharmer/${{ matrix.image }}:${{ github.sha }}
+
+      - name: Smoke test claude-code
+        if: matrix.image == 'claude-dev'
+        run: |
+          docker run --rm --entrypoint claude ghcr.io/thepharmer/claude-dev:${{ github.sha }} --version

@@ -25,7 +25,7 @@ services:
     volumes:
       - /srv:/workspace
       - claude-config:/claude
-      - /srv/docker/claude-dev/authorized_keys:/home/node/.ssh/authorized_keys:ro
+      - /srv/docker/claude-dev/authorized_keys:/home/claude/.ssh/authorized_keys:ro
     environment:
       CLAUDE_CONFIG_DIR: /claude
       ANTHROPIC_BASE_URL: http://claude-proxy:8080
