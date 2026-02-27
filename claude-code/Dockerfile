@@ -5,7 +5,7 @@ ARG CLAUDE_CODE_VERSION=""
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       git openssh-server bash mosh sudo curl ca-certificates \
-      ripgrep nodejs npm \
+      ripgrep nodejs npm unzip \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /run/sshd \
     && ssh-keygen -A
