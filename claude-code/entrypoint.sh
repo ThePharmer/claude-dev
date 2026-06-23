@@ -39,9 +39,8 @@ if [ ! -s /home/claude/.ssh/authorized_keys ]; then
     exit 1
 fi
 
-# Fix home directory ownership (needed after UID/GID remap for ~/.local/bin/claude etc.)
+# Fix home directory ownership (needed after UID/GID remap so claude owns its home)
 chown "$USER_UID:$USER_GID" /home/claude
-chown -R "$USER_UID:$USER_GID" /home/claude/.local 2>/dev/null || true
 
 # Fix SSH directory permissions
 chown "$USER_UID:$USER_GID" /home/claude/.ssh
@@ -62,6 +61,26 @@ fi
 KEY_COUNT=$(wc -l < /home/claude/.ssh/authorized_keys)
 echo "SSH authorized_keys: $KEY_COUNT key(s) loaded"
 echo "User: claude (UID=$USER_UID, GID=$USER_GID)"
+
+# -----------------------------------------------------------------------------
+# Start the cloudcli web UI in the background, as the claude user.
+# tini (PID 1, started with -g) reaps it; sshd remains the foreground process below.
+# Data (the web-UI login DB) is written under /claude so it persists with the
+# mounted config volume instead of being lost on container recreate.
+# -----------------------------------------------------------------------------
+CLOUDCLI_PORT="${SERVER_PORT:-3001}"
+CLOUDCLI_DB="${DATABASE_PATH:-/claude/cloudcli-auth.db}"
+echo "Starting CloudCLI web UI on port ${CLOUDCLI_PORT} (UI login DB: ${CLOUDCLI_DB})..."
+runuser -u claude -- env \
+    HOME=/home/claude \
+    CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-/claude}" \
+    SERVER_PORT="${CLOUDCLI_PORT}" \
+    HOST="${HOST:-0.0.0.0}" \
+    DATABASE_PATH="${CLOUDCLI_DB}" \
+    PATH=/usr/local/bin:/usr/bin:/bin:/home/claude/.local/bin \
+    cloudcli start --port "${CLOUDCLI_PORT}" \
+    > /tmp/cloudcli.log 2>&1 &
+
 echo "Starting SSHD on port 22..."
 echo "=========================================="
 
