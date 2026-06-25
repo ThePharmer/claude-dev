@@ -1,0 +1,27 @@
+services:
+  claude-code:
+    image: ghcr.io/thepharmer/claude-dev:latest
+    container_name: claude-code
+    user: root
+    ports:
+      - "2222:22"
+      - "3001:3001"
+      - "60000-61000:60000-61000/udp"
+    volumes:
+      - /srv:/srv
+      - claude-config:/claude
+      - /opt/claude-dev/authorized_keys:/home/claude/.ssh/authorized_keys:ro
+    environment:
+      - TZ=America/Detroit
+    healthcheck:
+      # curl -f exits non-zero on connection failure or HTTP >=400, which is exactly
+      # what the healthcheck wants - no shell or "|| exit 1" needed in exec (CMD) form.
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3001"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  claude-config:
