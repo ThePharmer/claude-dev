@@ -31,6 +31,17 @@ RUN curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - \
     && rm -rf /var/lib/apt/lists/* \
     && node --version && npm --version
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+# bookworm-slim is PEP 668 externally-managed, so a system install needs the flag.
+# yt-dlp[default] pulls certifi + curl_cffi. Node 24 already satisfies the JS runtime.
+RUN uv pip install --system --break-system-packages --no-cache \
+        "yt-dlp[default]" youtube-transcript-api
+
+# Optional — ONLY if you want the skill's opt-in --whisper tier:
+# RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+#     && rm -rf /var/lib/apt/lists/*
+
 # ---------------------------------------------------------------------------
 # Create 'claude' user (replaces 'node' from old base image)
 # ---------------------------------------------------------------------------
