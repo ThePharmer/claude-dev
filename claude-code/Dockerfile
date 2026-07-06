@@ -89,7 +89,6 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 22
 EXPOSE 3001
-EXPOSE 3017
 EXPOSE 60000-61000/udp
 
 # tini as PID 1, with -g so a stop signal reaches the whole process group, not just
