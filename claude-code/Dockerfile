@@ -2,7 +2,7 @@ FROM debian:bookworm-slim
 
 # Pin Claude Code. Default is the version you asked for; override at build with
 #   docker build --build-arg CLAUDE_CODE_VERSION=2.1.185 ...
-ARG CLAUDE_CODE_VERSION="2.1.181"
+ARG CLAUDE_CODE_VERSION="2.1.185"
 
 # Node major version for cloudcli (it requires Node 22+).
 ARG NODE_MAJOR="24"
@@ -89,6 +89,7 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 22
 EXPOSE 3001
+EXPOSE 3017
 EXPOSE 60000-61000/udp
 
 # tini as PID 1, with -g so a stop signal reaches the whole process group, not just
