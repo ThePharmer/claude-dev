@@ -4,46 +4,11 @@ A Docker container with Claude Code pre-installed and ready to use.
 
 This container includes all necessary dependencies and provides an easy way to run Claude Code in an isolated environment.
 
-An optional proxy can be enabled to track all the requests made by Claude Code in a local SQLite database.
-
 ## Available Images
-
-Three Docker images are available on Docker Hub, all released with matching version tags:
 
 | Image | Purpose | Base |
 |-------|---------|------|
 | [nezhar/claude-container](https://hub.docker.com/r/nezhar/claude-container) | Main container with Claude Code CLI pre-installed | Alpine 3.20 |
-| [nezhar/claude-proxy](https://hub.docker.com/r/nezhar/claude-proxy) | Optional HTTP proxy that logs all API requests to SQLite | Python 3.12 Alpine |
-| [nezhar/claude-datasette](https://hub.docker.com/r/nezhar/claude-datasette) | Optional web UI for visualizing and querying logged requests | Datasette + plugins |
-
-### Architecture Overview
-
-When using all three images together, the request flow looks like this:
-
-```
-┌─────────────────┐      ┌──────────────────┐      ┌─────────────────────┐
-│ claude-container│─────▶│  claude-proxy    │─────▶│  api.anthropic.com  │
-│  (Claude Code)  │      │   (HTTP Proxy)   │      │   (Anthropic API)   │
-└─────────────────┘      └────────┬─────────┘      └─────────────────────┘
-                                  │
-                                  ▼
-                         ┌─────────────────┐
-                         │  requests.db    │
-                         │   (SQLite)      │
-                         └────────┬────────┘
-                                  │
-                                  ▼
-                         ┌─────────────────┐
-                         │claude-datasette │
-                         │   (Web UI)      │
-                         └─────────────────┘
-                         http://localhost:8001
-```
-
-**Standalone Usage:**
-- Use **claude-container** alone for basic Claude Code functionality
-- Add **claude-proxy** when you need API request logging
-- Add **claude-datasette** when you want to visualize and analyze logs
 
 ## Compatibility Matrix
 
@@ -101,7 +66,7 @@ sudo curl -o /usr/local/bin/claude-container https://raw.githubusercontent.com/n
 sudo chmod +x /usr/local/bin/claude-container
 ```
 
-The script handles all Docker configuration automatically and supports additional features like API logging. Run with `--help` to see all available options:
+The script handles all Docker configuration automatically. Run with `--help` to see all available options:
 
 ```bash
 claude-container --help
@@ -205,148 +170,3 @@ docker compose --profile tools run claude-code claude
 ```
 
 This approach keeps Claude Code separate from your main application services while allowing easy access when needed.
-
-## API Request Logging Proxy
-
-This repository includes an optional logging proxy that captures all Anthropic API requests and responses to a SQLite database. This is useful for:
-
-- Debugging API interactions
-- Monitoring token usage and costs
-- Analyzing request/response patterns
-- Building custom analytics tools
-
-### Running with Docker
-
-**Run Claude Container directly:**
-```bash
-docker run --rm -it \
-  -v "$(pwd):/workspace" \
-  -v "$HOME/.config/claude-container:/claude" \
-  -e "CLAUDE_CONFIG_DIR=/claude" \
-  nezhar/claude-container:latest claude
-```
-
-**Run with logging proxy:**
-```bash
-# 1. Create a Docker network
-docker network create claude-network
-
-# 2. Start the proxy container
-docker run -d --name claude-proxy \
-  --network claude-network \
-  -v "$(pwd)/proxy-data:/data" \
-  -p 8080:8080 \
-  nezhar/claude-proxy:latest
-
-# 3. Run Claude Code (configured to use the proxy)
-docker run --rm -it \
-  --network claude-network \
-  -v "$(pwd):/workspace" \
-  -v "$HOME/.config/claude-container:/claude" \
-  -e "CLAUDE_CONFIG_DIR=/claude" \
-  -e "ANTHROPIC_BASE_URL=http://claude-proxy:8080" \
-  nezhar/claude-container:latest claude
-
-# 4. Cleanup when done
-docker stop claude-proxy
-docker rm claude-proxy
-docker network rm claude-network
-```
-
-### Proxy Configuration
-
-The proxy supports the following environment variables:
-
-- `PROXY_PORT`: Port to listen on (default: `8080`)
-- `TARGET_API_URL`: Target API URL (default: `https://api.anthropic.com`)
-- `DB_PATH`: SQLite database path (default: `/data/requests.db`)
-
-## Data Visualization with Datasette
-
-This repository includes a Datasette container for exploring and visualizing the API request logs captured by the proxy. Datasette provides a web-based interface to explore your SQLite database with filtering, sorting, and export capabilities.
-
-### Features
-
-- **Browse Request Logs**: View all API requests with filtering and sorting
-- **JSON Visualization**: Pretty-print JSON request/response bodies
-- **Analytics**: Analyze request patterns, response times, and error rates
-- **Export Data**: Export filtered results to CSV, JSON, or Excel
-- **SQL Queries**: Run custom SQL queries against your data
-
-### Running with Datasette
-
-When using Docker Compose, you can add the Datasette service to visualize your proxy data:
-
-```yaml
-services:
-  claude-proxy:
-    image: nezhar/claude-proxy:latest
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./proxy-data:/data
-
-  claude-datasette:
-    image: nezhar/claude-datasette:latest
-    ports:
-      - "8001:8001"
-    volumes:
-      - ./proxy-data:/data:ro
-    depends_on:
-      - claude-proxy
-
-  claude-code:
-    image: nezhar/claude-container:latest
-    volumes:
-      - ./workspace:/workspace
-      - ./claude-config:/claude
-    environment:
-      CLAUDE_CONFIG_DIR: /claude
-      ANTHROPIC_BASE_URL: http://claude-proxy:8080
-    depends_on:
-      - claude-proxy
-```
-
-Start the services:
-```bash
-docker compose up -d claude-proxy claude-datasette
-docker compose run claude-code claude
-```
-
-Then access Datasette at http://localhost:8001 to explore your API request logs.
-
-### Using Datasette
-
-Once Datasette is running:
-
-1. **View All Requests**: Navigate to the `request_logs` table to see all captured API requests
-2. **Filter Data**: Use the faceted filters to narrow down by HTTP method, status code, etc.
-3. **Examine Details**: Click on individual requests to see full headers and JSON bodies
-4. **Run Queries**: Use the SQL interface to run custom analytics queries
-5. **Export Results**: Export filtered data in various formats for further analysis
-
-Example queries you might run:
-
-```sql
--- Average response time by endpoint
-SELECT path, AVG(duration_ms) as avg_duration, COUNT(*) as request_count
-FROM request_logs
-GROUP BY path
-ORDER BY avg_duration DESC;
-
--- Requests with errors
-SELECT timestamp, method, path, response_status, duration_ms
-FROM request_logs
-WHERE response_status >= 400
-ORDER BY timestamp DESC;
-
--- Token usage over time (if captured in request_body)
-SELECT
-  DATE(timestamp) as date,
-  SUM(json_extract(response_body, '$.usage.input_tokens')) as input_tokens,
-  SUM(json_extract(response_body, '$.usage.output_tokens')) as output_tokens
-FROM request_logs
-WHERE json_extract(response_body, '$.usage') IS NOT NULL
-GROUP BY date
-ORDER BY date DESC;
-```

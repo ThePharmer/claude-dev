@@ -9,40 +9,24 @@
 # Options:
 #   --workspace, -w <path>  Set workspace directory (default: current directory)
 #   --config, -c <path>     Set config directory (default: $HOME/.config/claude-container)
-#   --proxy                 Enable API logging proxy
-#   --proxy-data <path>     Set proxy data directory (default: ./proxy-data)
-#   --proxy-stop            Stop and cleanup proxy container
-#   --proxy-logs            Show proxy logs
 #   --help, -h              Show this help message
 #
 # Examples:
 #   claude-container                    # Run in current directory
-#   claude-container --proxy            # Run with API logging proxy
-#   claude-container --proxy-stop       # Stop proxy and cleanup
 #   claude-container -w /path/to/code   # Run with custom workspace
 #
 
 set -e
 
 # Version information
-# Container and proxy are always released with the same version
 VERSION="2.0.0"
 
 # Default values
 WORKSPACE_DIR="$(pwd)"
 CONFIG_BASE_DIR="$HOME/.config/claude-container"
 CONFIG_DIR="$HOME/.config/claude-container/config"
-PROXY_DATA_DIR="$HOME/.config/claude-container/proxy-data"
 IMAGE="nezhar/claude-container:${VERSION}"
-PROXY_IMAGE="nezhar/claude-proxy:${VERSION}"
-DATASETTE_IMAGE="nezhar/claude-datasette:${VERSION}"
 COMMAND="claude"
-USE_PROXY=false
-USE_DATASETTE=false
-NETWORK_NAME="claude-network"
-PROXY_CONTAINER_NAME="claude-proxy"
-DATASETTE_CONTAINER_NAME="claude-datasette"
-DATASETTE_PORT=8001
 
 # Color codes for output
 RED='\033[0;31m'
@@ -56,7 +40,7 @@ show_help() {
     cat << EOF
 Claude Container Launcher
 
-A convenient script to run Claude Code in a Docker container with optional API logging.
+A convenient script to run Claude Code in a Docker container.
 
 USAGE:
     claude-container [OPTIONS] [COMMAND]
@@ -68,28 +52,8 @@ OPTIONS:
     -v, --version               Show version information (Claude Container, Claude Code, Docker)
     --pull                      Pull latest images before running
 
-PROXY OPTIONS:
-    --proxy                     Enable API logging proxy
-    --proxy-data <path>         Set proxy data directory (default: \$HOME/.config/claude-container/proxy-data)
-    --proxy-stop                Stop and cleanup proxy container
-    --proxy-logs                Show proxy container logs
-
-DATASETTE OPTIONS:
-    --datasette                 Enable Datasette for data visualization (requires --proxy)
-    --datasette-only            Start only Datasette (database must already exist)
-    --datasette-port <port>     Set Datasette port (default: 8001)
-    --datasette-stop            Stop and cleanup Datasette container
-    --datasette-logs            Show Datasette container logs
-
 EXAMPLES:
     claude-container                                # Run in current directory
-    claude-container --proxy                        # Run with API logging enabled
-    claude-container --proxy --datasette            # Run with logging and data visualization
-    claude-container --datasette-only               # Start only Datasette (if database exists)
-    claude-container --proxy-stop                   # Stop the proxy container
-    claude-container --datasette-stop               # Stop the Datasette container
-    claude-container --proxy-logs                   # View proxy logs
-    claude-container --datasette-logs               # View Datasette logs
     claude-container -w /path/to/project            # Run with custom workspace
     claude-container --pull                         # Pull latest images and run
     claude-container ls -la                         # Run custom command in container
@@ -97,20 +61,7 @@ EXAMPLES:
 ENVIRONMENT VARIABLES:
     CLAUDE_WORKSPACE        Override default workspace directory
     CLAUDE_CONFIG           Override default config directory
-    CLAUDE_PROXY_DATA       Override default proxy data directory
     CLAUDE_IMAGE            Override default Docker image
-    CLAUDE_PROXY_IMAGE      Override default proxy image
-    CLAUDE_DATASETTE_IMAGE  Override default Datasette image
-
-PROXY DATABASE:
-    When using --proxy, all API requests are logged to: <proxy-data>/requests.db
-
-    View recent requests:
-        sqlite3 proxy-data/requests.db "SELECT timestamp, method, path, response_status FROM request_logs ORDER BY timestamp DESC LIMIT 10;"
-
-DATASETTE VISUALIZATION:
-    When using --datasette, a web UI is available at http://localhost:8001
-    This provides an interactive interface to explore and analyze your API request logs.
 
 FIRST TIME SETUP:
     On first run, you'll be prompted to authenticate with Claude.
@@ -119,140 +70,8 @@ FIRST TIME SETUP:
 EOF
 }
 
-# Function to stop datasette
-stop_datasette() {
-    if docker ps -a --format '{{.Names}}' | grep -q "^${DATASETTE_CONTAINER_NAME}$"; then
-        echo -e "${YELLOW}Stopping Datasette container...${NC}"
-        docker stop "$DATASETTE_CONTAINER_NAME" 2>/dev/null || true
-        docker rm "$DATASETTE_CONTAINER_NAME" 2>/dev/null || true
-    fi
-}
-
-# Function to stop proxy
-stop_proxy() {
-    if docker ps -a --format '{{.Names}}' | grep -q "^${PROXY_CONTAINER_NAME}$"; then
-        echo -e "${YELLOW}Stopping proxy container...${NC}"
-        docker stop "$PROXY_CONTAINER_NAME" 2>/dev/null || true
-        docker rm "$PROXY_CONTAINER_NAME" 2>/dev/null || true
-    fi
-
-    if docker network ls --format '{{.Name}}' | grep -q "^${NETWORK_NAME}$"; then
-        # Check if network has any containers
-        if [ -z "$(docker network inspect "$NETWORK_NAME" -f '{{range .Containers}}{{.Name}}{{end}}' 2>/dev/null)" ]; then
-            echo -e "${YELLOW}Removing network...${NC}"
-            docker network rm "$NETWORK_NAME" 2>/dev/null || true
-        fi
-    fi
-}
-
-# Function to start proxy
-start_proxy() {
-    # Create network if it doesn't exist
-    if ! docker network ls --format '{{.Name}}' | grep -q "^${NETWORK_NAME}$"; then
-        echo -e "${GREEN}Creating Docker network...${NC}"
-        docker network create "$NETWORK_NAME"
-    fi
-
-    # Check if proxy is already running
-    if docker ps --format '{{.Names}}' | grep -q "^${PROXY_CONTAINER_NAME}$"; then
-        echo -e "${BLUE}Proxy is already running${NC}"
-        return 0
-    fi
-
-    # Remove stopped proxy container if exists
-    if docker ps -a --format '{{.Names}}' | grep -q "^${PROXY_CONTAINER_NAME}$"; then
-        docker rm "$PROXY_CONTAINER_NAME" 2>/dev/null || true
-    fi
-
-    # Create proxy data directory if it doesn't exist
-    if [ ! -d "$PROXY_DATA_DIR" ]; then
-        echo -e "${YELLOW}Creating proxy data directory: $PROXY_DATA_DIR${NC}"
-        mkdir -p "$PROXY_DATA_DIR"
-    fi
-
-    # Start proxy container
-    echo -e "${GREEN}Starting proxy container...${NC}"
-    docker run -d \
-        --name "$PROXY_CONTAINER_NAME" \
-        --network "$NETWORK_NAME" \
-        -v "$PROXY_DATA_DIR:/data" \
-        "$PROXY_IMAGE"
-
-    echo -e "${GREEN}Proxy started successfully${NC}"
-    echo -e "Proxy logs: ${YELLOW}$PROXY_DATA_DIR/requests.db${NC}"
-}
-
-# Function to start datasette
-start_datasette() {
-    local standalone="${1:-false}"
-
-    # Check if datasette is already running
-    if docker ps --format '{{.Names}}' | grep -q "^${DATASETTE_CONTAINER_NAME}$"; then
-        echo -e "${BLUE}Datasette is already running at http://localhost:${DATASETTE_PORT}${NC}"
-        return 0
-    fi
-
-    # In standalone mode, check if database exists
-    if [ "$standalone" = "true" ]; then
-        if [ ! -f "$PROXY_DATA_DIR/requests.db" ]; then
-            echo -e "${RED}Error: Database not found at $PROXY_DATA_DIR/requests.db${NC}"
-            echo -e "${YELLOW}Run Claude Code with --proxy first to create the database${NC}"
-            exit 1
-        fi
-        echo -e "${GREEN}Starting Datasette in standalone mode...${NC}"
-    else
-        # In integrated mode, ensure proxy is running
-        if ! docker ps --format '{{.Names}}' | grep -q "^${PROXY_CONTAINER_NAME}$"; then
-            echo -e "${RED}Error: Datasette requires the proxy to be running${NC}"
-            echo -e "${YELLOW}Use --proxy flag to enable the proxy${NC}"
-            exit 1
-        fi
-    fi
-
-    # Remove stopped datasette container if exists
-    if docker ps -a --format '{{.Names}}' | grep -q "^${DATASETTE_CONTAINER_NAME}$"; then
-        docker rm "$DATASETTE_CONTAINER_NAME" 2>/dev/null || true
-    fi
-
-    # Start datasette container
-    # In standalone mode, no network needed; in integrated mode, use the network
-    if [ "$standalone" = "true" ]; then
-        echo -e "${GREEN}Starting Datasette container...${NC}"
-        docker run -d \
-            --name "$DATASETTE_CONTAINER_NAME" \
-            -v "$PROXY_DATA_DIR:/data:ro" \
-            -p "${DATASETTE_PORT}:8001" \
-            "$DATASETTE_IMAGE"
-    else
-        echo -e "${GREEN}Starting Datasette container...${NC}"
-        docker run -d \
-            --name "$DATASETTE_CONTAINER_NAME" \
-            --network "$NETWORK_NAME" \
-            -v "$PROXY_DATA_DIR:/data:ro" \
-            -p "${DATASETTE_PORT}:8001" \
-            "$DATASETTE_IMAGE"
-    fi
-
-    echo -e "${GREEN}Datasette started successfully${NC}"
-    echo -e "Web UI: ${YELLOW}http://localhost:${DATASETTE_PORT}${NC}"
-}
-
-# Function to cleanup on exit
-cleanup() {
-    local exit_code=$?
-    if [ $exit_code -ne 0 ] && [ "$USE_PROXY" = true ]; then
-        echo -e "\n${YELLOW}Error occurred. Cleaning up...${NC}"
-        stop_proxy
-    fi
-}
-
 # Parse command line arguments
-STOP_PROXY=false
-STOP_DATASETTE=false
-SHOW_LOGS=false
-SHOW_DATASETTE_LOGS=false
 PULL_IMAGES=false
-DATASETTE_ONLY=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -267,43 +86,6 @@ while [[ $# -gt 0 ]]; do
         -c|--config)
             CONFIG_DIR="$2"
             shift 2
-            ;;
-        --proxy)
-            USE_PROXY=true
-            shift
-            ;;
-        --proxy-data)
-            PROXY_DATA_DIR="$2"
-            shift 2
-            ;;
-        --proxy-stop)
-            STOP_PROXY=true
-            shift
-            ;;
-        --proxy-logs)
-            SHOW_LOGS=true
-            shift
-            ;;
-        --datasette)
-            USE_DATASETTE=true
-            USE_PROXY=true  # Datasette requires proxy
-            shift
-            ;;
-        --datasette-only)
-            DATASETTE_ONLY=true
-            shift
-            ;;
-        --datasette-port)
-            DATASETTE_PORT="$2"
-            shift 2
-            ;;
-        --datasette-stop)
-            STOP_DATASETTE=true
-            shift
-            ;;
-        --datasette-logs)
-            SHOW_DATASETTE_LOGS=true
-            shift
             ;;
         --pull)
             PULL_IMAGES=true
@@ -341,74 +123,12 @@ done
 # Override with environment variables if set
 WORKSPACE_DIR="${CLAUDE_WORKSPACE:-$WORKSPACE_DIR}"
 CONFIG_DIR="${CLAUDE_CONFIG:-$CONFIG_DIR}"
-PROXY_DATA_DIR="${CLAUDE_PROXY_DATA:-$PROXY_DATA_DIR}"
 IMAGE="${CLAUDE_IMAGE:-$IMAGE}"
-PROXY_IMAGE="${CLAUDE_PROXY_IMAGE:-$PROXY_IMAGE}"
-DATASETTE_IMAGE="${CLAUDE_DATASETTE_IMAGE:-$DATASETTE_IMAGE}"
-
-# Handle datasette-only command
-if [ "$DATASETTE_ONLY" = true ]; then
-    # Convert proxy data dir to absolute path
-    PROXY_DATA_DIR="$(cd "$(dirname "$PROXY_DATA_DIR")" 2>/dev/null && pwd)/$(basename "$PROXY_DATA_DIR")" || PROXY_DATA_DIR="$(pwd)/$(basename "$PROXY_DATA_DIR")"
-
-    if [ ! -d "$PROXY_DATA_DIR" ]; then
-        echo -e "${RED}Error: Proxy data directory does not exist: $PROXY_DATA_DIR${NC}"
-        echo -e "${YELLOW}Run Claude Code with --proxy first to create the database${NC}"
-        exit 1
-    fi
-
-    PROXY_DATA_DIR="$(cd "$PROXY_DATA_DIR" && pwd)"
-    start_datasette "true"
-    exit 0
-fi
-
-# Handle datasette-stop command
-if [ "$STOP_DATASETTE" = true ]; then
-    stop_datasette
-    echo -e "${GREEN}Datasette stopped and cleaned up${NC}"
-    exit 0
-fi
-
-# Handle proxy-stop command
-if [ "$STOP_PROXY" = true ]; then
-    stop_datasette  # Stop datasette first if running
-    stop_proxy
-    echo -e "${GREEN}Proxy stopped and cleaned up${NC}"
-    exit 0
-fi
-
-# Handle datasette-logs command
-if [ "$SHOW_DATASETTE_LOGS" = true ]; then
-    if docker ps --format '{{.Names}}' | grep -q "^${DATASETTE_CONTAINER_NAME}$"; then
-        docker logs -f "$DATASETTE_CONTAINER_NAME"
-    else
-        echo -e "${RED}Error: Datasette container is not running${NC}"
-        exit 1
-    fi
-    exit 0
-fi
-
-# Handle proxy-logs command
-if [ "$SHOW_LOGS" = true ]; then
-    if docker ps --format '{{.Names}}' | grep -q "^${PROXY_CONTAINER_NAME}$"; then
-        docker logs -f "$PROXY_CONTAINER_NAME"
-    else
-        echo -e "${RED}Error: Proxy container is not running${NC}"
-        exit 1
-    fi
-    exit 0
-fi
 
 # Pull images if requested
 if [ "$PULL_IMAGES" = true ]; then
     echo -e "${GREEN}Pulling latest images...${NC}"
     docker pull "$IMAGE"
-    if [ "$USE_PROXY" = true ]; then
-        docker pull "$PROXY_IMAGE"
-    fi
-    if [ "$USE_DATASETTE" = true ]; then
-        docker pull "$DATASETTE_IMAGE"
-    fi
 fi
 
 # Validate workspace directory
@@ -434,69 +154,18 @@ fi
 WORKSPACE_DIR="$(cd "$WORKSPACE_DIR" && pwd)"
 CONFIG_DIR="$(cd "$CONFIG_DIR" && pwd)" 2>/dev/null || CONFIG_DIR="$(mkdir -p "$CONFIG_DIR" && cd "$CONFIG_DIR" && pwd)"
 
-# Handle proxy mode
-if [ "$USE_PROXY" = true ]; then
-    # Convert proxy data dir to absolute path
-    PROXY_DATA_DIR="$(cd "$(dirname "$PROXY_DATA_DIR")" 2>/dev/null && pwd)/$(basename "$PROXY_DATA_DIR")" || PROXY_DATA_DIR="$(pwd)/$(basename "$PROXY_DATA_DIR")"
-    mkdir -p "$PROXY_DATA_DIR"
-    PROXY_DATA_DIR="$(cd "$PROXY_DATA_DIR" && pwd)"
+# Run the container
+echo -e "${GREEN}Starting Claude Container...${NC}"
+echo -e "Version:   ${YELLOW}$VERSION${NC}"
+echo -e "Workspace: ${YELLOW}$WORKSPACE_DIR${NC}"
+echo -e "Config:    ${YELLOW}$CONFIG_DIR${NC}"
+echo ""
 
-    # Set trap for cleanup
-    trap cleanup EXIT INT TERM
-
-    # Start proxy
-    start_proxy
-
-    # Start datasette if requested
-    if [ "$USE_DATASETTE" = true ]; then
-        start_datasette
-    fi
-
-    echo -e "\n${GREEN}Starting Claude Container with API logging...${NC}"
-    echo -e "Version:    ${YELLOW}$VERSION${NC}"
-    echo -e "Workspace:  ${YELLOW}$WORKSPACE_DIR${NC}"
-    echo -e "Config:     ${YELLOW}$CONFIG_DIR${NC}"
-    echo -e "Proxy logs: ${YELLOW}$PROXY_DATA_DIR/requests.db${NC}"
-    if [ "$USE_DATASETTE" = true ]; then
-        echo -e "Datasette:  ${YELLOW}http://localhost:${DATASETTE_PORT}${NC}"
-    fi
-    echo ""
-
-    # Run the container with proxy
-    docker run --rm -it \
-        --network "$NETWORK_NAME" \
-        -v "$WORKSPACE_DIR:/workspace" \
-        -v "$CONFIG_DIR:/claude" \
-        -e "CLAUDE_CONFIG_DIR=/claude" \
-        -e "ANTHROPIC_BASE_URL=http://$PROXY_CONTAINER_NAME:8080" \
-        -e "USER_UID=$(id -u)" \
-        -e "USER_GID=$(id -g)" \
-        "$IMAGE" \
-        $COMMAND
-
-    # Note: Proxy and Datasette are intentionally left running for potential subsequent runs
-    if [ "$USE_DATASETTE" = true ]; then
-        echo -e "\n${BLUE}Proxy and Datasette containers are still running.${NC}"
-        echo -e "${BLUE}Datasette UI: http://localhost:${DATASETTE_PORT}${NC}"
-        echo -e "${BLUE}Use '$0 --proxy-stop' to stop both containers.${NC}"
-    else
-        echo -e "\n${BLUE}Proxy container is still running. Use '$0 --proxy-stop' to stop it.${NC}"
-    fi
-else
-    # Run without proxy
-    echo -e "${GREEN}Starting Claude Container...${NC}"
-    echo -e "Version:   ${YELLOW}$VERSION${NC}"
-    echo -e "Workspace: ${YELLOW}$WORKSPACE_DIR${NC}"
-    echo -e "Config:    ${YELLOW}$CONFIG_DIR${NC}"
-    echo ""
-
-    # Run the container
-    docker run --rm -it \
-        -v "$WORKSPACE_DIR:/workspace" \
-        -v "$CONFIG_DIR:/claude" \
-        -e "CLAUDE_CONFIG_DIR=/claude" \
-        -e "USER_UID=$(id -u)" \
-        -e "USER_GID=$(id -g)" \
-        "$IMAGE" \
-        $COMMAND
-fi
+docker run --rm -it \
+    -v "$WORKSPACE_DIR:/workspace" \
+    -v "$CONFIG_DIR:/claude" \
+    -e "CLAUDE_CONFIG_DIR=/claude" \
+    -e "USER_UID=$(id -u)" \
+    -e "USER_GID=$(id -g)" \
+    "$IMAGE" \
+    $COMMAND

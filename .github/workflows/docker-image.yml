@@ -17,10 +17,6 @@ jobs:
         include:
           - context: ./claude-code
             image: claude-dev
-          - context: ./claude-proxy
-            image: claude-proxy
-          - context: ./claude-datasette
-            image: claude-datasette
 
     steps:
       - uses: actions/checkout@v4

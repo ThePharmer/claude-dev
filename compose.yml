@@ -1,16 +1,4 @@
 services:
-  claude-proxy:
-    image: ghcr.io/thepharmer/claude-proxy:${CLAUDE_CONTAINER_VERSION:-latest}
-    build:
-      context: ./claude-proxy
-      dockerfile: Dockerfile
-
-  claude-datasette:
-    image: ghcr.io/thepharmer/claude-datasette:${CLAUDE_CONTAINER_VERSION:-latest}
-    build:
-      context: ./claude-datasette
-      dockerfile: Dockerfile
-
   claude-code:
     image: ghcr.io/thepharmer/claude-dev:${CLAUDE_CONTAINER_VERSION:-latest}
     build:
