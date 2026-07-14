@@ -126,9 +126,5 @@ Pushes to `main` build the image, push `latest` + commit-SHA tags to ghcr, and s
 ```
 claude-code/     Dockerfile + entrypoint for the dev container image
 example/         Reference compose.yml
-bin/             claude-container: standalone launcher for one-off local runs
-completions/     Bash completions for the launcher
 docs/            Auth walkthrough screenshots
 ```
-
-The `bin/claude-container` launcher predates the SSH-server workflow and still targets the upstream `nezhar/claude-container` image by default (override with `CLAUDE_IMAGE=ghcr.io/thepharmer/claude-dev:latest`). It's kept for quick throwaway sessions on machines without the compose setup.
