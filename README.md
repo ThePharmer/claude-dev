@@ -1,172 +1,134 @@
-# Claude Container
+# claude-dev
 
-A Docker container with Claude Code pre-installed and ready to use.
+An always-on [Claude Code](https://claude.com/claude-code) dev container you SSH into.
 
-This container includes all necessary dependencies and provides an easy way to run Claude Code in an isolated environment.
+One long-running Docker container hosts Claude Code plus a curated toolbelt, reachable three ways: **SSH** for terminal sessions, **mosh** for flaky connections, and the **CloudCLI web UI** for the browser. Config and credentials live on a named volume, so the container itself is disposable — rebuild or recreate it and everything important survives.
 
-## Available Images
+Forked from [nezhar/claude-container](https://github.com/nezhar/claude-container), then rebuilt around a persistent SSH-server workflow instead of one-off `docker run` sessions.
 
-| Image | Purpose | Base |
-|-------|---------|------|
-| [nezhar/claude-container](https://hub.docker.com/r/nezhar/claude-container) | Main container with Claude Code CLI pre-installed | Alpine 3.20 |
+## What's in the image
 
-## Compatibility Matrix
+`ghcr.io/thepharmer/claude-dev` — Debian 12 (bookworm-slim).
 
-**Latest Release:** 2.0.0
+| Tool | Why it's baked in |
+|------|-------------------|
+| Claude Code (pinned via `CLAUDE_CODE_VERSION`) | The point. Auto-updates disabled — version changes happen by rebuild, so the image tag tells the truth |
+| Node.js 24 (NodeSource) | Runtime for claude-code and CloudCLI; also serves as yt-dlp's JS runtime |
+| [CloudCLI](https://www.npmjs.com/package/@cloudcli-ai/cloudcli) | Web UI for Claude Code on port 3001, started by the entrypoint |
+| GitHub CLI (`gh`, official apt repo) | PRs/issues from inside the container; auth persists on the config volume via `GH_CONFIG_DIR=/claude/gh` |
+| `yt-dlp`, `youtube-transcript-api`, `faster-whisper`, `ffmpeg` | The youtube-evaluator skill works with zero runtime installs — including its Whisper fallback for caption-less videos (CTranslate2-based, no PyTorch) |
+| `uv` | Fast Python package installs; skills use it to bootstrap anything not baked in |
+| mosh + openssh-server | Terminal access; mosh keeps sessions alive across roaming/sleep |
+| `ripgrep`, `jq`, `sqlite3`, `build-essential`, `python3` | Day-to-day CLI work, plus compiling CloudCLI's native modules (node-pty, better-sqlite3) |
 
-| Container Version | Claude Code Version | Notes |
-|-------------------|---------------------|-------|
-| 2.0.x             | 2.x (native binary) | Alpine 3.20, native installer |
-| 1.0.x–1.4.x      | 1.0.x–2.0.x (npm)   | Node.js Alpine, npm install (deprecated) |
+## Quick start
 
-## Migration from v1.x to v2.0
+1. Put your SSH public key(s) somewhere the container can mount, e.g. `/srv/docker/claude-dev/authorized_keys`. The entrypoint **refuses to start without it**.
 
-v2.0 switches from npm-based installation (`node:24-alpine`) to Anthropic's native binary installer (`alpine:3.20`). This drops the Node.js dependency, shrinks the image, and aligns with the officially supported installation path.
-
-**Breaking change:** The container user changed from `node` to `claude`. Update your `authorized_keys` mount path:
-
-```yaml
-# Old (v1.x):
-- /path/to/authorized_keys:/home/node/.ssh/authorized_keys:ro
-# New (v2.0):
-- /path/to/authorized_keys:/home/claude/.ssh/authorized_keys:ro
-```
-
-All other volume mounts (`/claude`, `/srv`, etc.) and environment variables remain unchanged.
-
-**Manual in-container updates:** The auto-updater is disabled by default (`DISABLE_AUTOUPDATER=1`) to avoid a known 0-byte file bug. To update Claude Code between image rebuilds:
-
-```bash
-# SSH into the container, then:
-DISABLE_AUTOUPDATER=0 claude update
-```
-
-## Quick Start
-
-### Using the Helper Script (Recommended)
-
-The easiest way to run Claude Container is using the provided bash script. Download and install it with:
-
-```bash
-# Download the script directly from GitHub
-curl -o ~/.local/bin/claude-container https://raw.githubusercontent.com/nezhar/claude-container/main/bin/claude-container
-
-# Make it executable
-chmod +x ~/.local/bin/claude-container
-
-# Run Claude Code
-claude-container
-```
-
-Make sure `~/.local/bin` is in your PATH. Alternatively, install to `/usr/local/bin`:
-
-```bash
-# Download and install system-wide (requires sudo)
-sudo curl -o /usr/local/bin/claude-container https://raw.githubusercontent.com/nezhar/claude-container/main/bin/claude-container
-sudo chmod +x /usr/local/bin/claude-container
-```
-
-The script handles all Docker configuration automatically. Run with `--help` to see all available options:
-
-```bash
-claude-container --help
-```
-
-#### Optional: Enable Tab Completion
-
-To enable bash tab completion for the `claude-container` command:
-
-```bash
-# Download and install completion script
-mkdir -p ~/.local/share/bash-completion/completions
-curl -o ~/.local/share/bash-completion/completions/claude-container https://raw.githubusercontent.com/nezhar/claude-container/main/completions/claude-container
-
-# Reload your shell or start a new terminal session
-source ~/.bashrc
-```
-
-Once installed, you can use tab completion with `claude-container --<TAB>` to see all available options
-
-#### Updating to the Latest Version
-
-To update to the latest version, simply re-download the helper script and completions:
-
-```bash
-# Update helper script (user install)
-curl -o ~/.local/bin/claude-container https://raw.githubusercontent.com/nezhar/claude-container/main/bin/claude-container
-
-# Or for system-wide install
-sudo curl -o /usr/local/bin/claude-container https://raw.githubusercontent.com/nezhar/claude-container/main/bin/claude-container
-
-# Update completions (if installed)
-curl -o ~/.local/share/bash-completion/completions/claude-container https://raw.githubusercontent.com/nezhar/claude-container/main/completions/claude-container
-
-# Verify the new version
-claude-container --version
-```
-
-The helper script will automatically pull the latest Docker images when needed.
-
-### Using Docker Compose
-
-Create a `compose.yml` file as provided in the example folder. 
-```bash
-docker compose run claude-code claude
-```
-
-You will need to login for the first time, afterwards your credentials and configurations will be stored inside a bind mount volume, make sure this stays in your `.gitignore`.
-
-### Using Docker directly
-
-
-```bash
-docker run --rm -it -v "$(pwd):/workspace" -v "$HOME/.config/claude-container:/claude" -e "CLAUDE_CONFIG_DIR=/claude" nezhar/claude-container:latest claude
-```
-
-This will store the credentials in `$HOME/.config/claude-container` and will be able to reuse them after the first login.
-
-## How does the authentication work
-
-When you run the container for the first time, you'll go through the following authentication steps:
-
-1. **Choose Color Schema**: Select your preferred terminal color scheme
-
-   ![Color Schema Selection](docs/auth1.png)
-
-2. **Select Login Method**: Choose between Subscription or Console login (this example uses Subscription)
-
-   ![Login Method Selection](docs/auth2.png)
-
-3. **Generate Token**: Open the provided URL in your browser to generate an authentication token, then paste it into the prompt
-
-   ![Token Generation](docs/auth3.png)
-
-4. **Success**: You're authenticated and ready to use Claude Code
-
-   ![Authentication Success](docs/auth4.png)
-
-## Integration with Existing Projects
-
-To integrate Claude Container into an existing Docker Compose project, create a `compose.override.yml` file:
+2. Use `example/compose.yml` as a starting point:
 
 ```yaml
 services:
   claude-code:
-    image: nezhar/claude-container:latest
+    image: ghcr.io/thepharmer/claude-dev:latest
+    ports:
+      - "2222:22"                        # SSH
+      - "3001:3001"                      # CloudCLI web UI
+      - "60000-61000:60000-61000/udp"    # mosh
     volumes:
-      - ./workspace:/workspace
-      - ./claude-config:/claude
+      - /srv:/workspace
+      - claude-config:/claude
+      - /srv/docker/claude-dev/authorized_keys:/home/claude/.ssh/authorized_keys:ro
     environment:
       CLAUDE_CONFIG_DIR: /claude
-    profiles:
-      - tools
+    restart: unless-stopped
+
+volumes:
+  claude-config:
 ```
 
-Then run Claude Code with:
+3. Start it and connect:
 
 ```bash
-# Using profiles to avoid starting by default
-docker compose --profile tools run claude-code claude
+docker compose up -d
+ssh -p 2222 claude@your-host        # or: mosh --ssh="ssh -p 2222" claude@your-host
+claude                              # first run walks you through login
 ```
 
-This approach keeps Claude Code separate from your main application services while allowing easy access when needed.
+The CloudCLI web UI is at `http://your-host:3001` (it has its own login, stored in `/claude/cloudcli-auth.db`).
+
+### First-time authentication
+
+On first `claude` run you'll pick a color scheme, choose Subscription or Console login, and paste a token from your browser:
+
+![Color Schema Selection](docs/auth1.png)
+![Login Method Selection](docs/auth2.png)
+![Token Generation](docs/auth3.png)
+![Authentication Success](docs/auth4.png)
+
+Credentials land on the `claude-config` volume and survive container recreation.
+
+## Persistence model
+
+Three tiers — know which one a file lives in:
+
+| Location | What | Survives |
+|----------|------|----------|
+| `claude-config` volume at `/claude` | Claude Code config + credentials, skills, hooks, memory, gh auth (`gh/`), Hugging Face model cache (`hf-cache/`), CloudCLI login DB | Everything — rebuilds, recreation, image upgrades |
+| Host bind mount (e.g. `/srv`) | Your projects | Everything (it's the host's filesystem) |
+| Container rootfs | Anything else — apt packages installed live, `/tmp`, `/home/claude` outside the symlinks | Restarts only. Gone on recreation — bake it into the Dockerfile instead |
+
+`~/.claude` is a symlink to `/claude`, so tools that hardcode the default config path still hit the volume.
+
+## How the container runs
+
+`tini` is PID 1. The entrypoint (`claude-code/entrypoint.sh`):
+
+1. Remaps the `claude` user to `USER_UID`/`USER_GID` if they differ from 1000 (match your host user to keep bind-mount ownership sane)
+2. Validates the `authorized_keys` mount and fixes SSH permissions
+3. Starts CloudCLI in the background as `claude` (logs: `/tmp/cloudcli.log`)
+4. Runs `sshd` in the foreground
+
+Password auth is disabled; pubkey only. `sudo` inside the container is passwordless for `claude`.
+
+### Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `USER_UID` / `USER_GID` | `1000` | Remap the container user to match host file ownership |
+| `CLAUDE_CONFIG_DIR` | `/claude` | Claude Code config location |
+| `SERVER_PORT` / `HOST` | `3001` / `0.0.0.0` | CloudCLI bind |
+| `DATABASE_PATH` | `/claude/cloudcli-auth.db` | CloudCLI login DB |
+| `GH_CONFIG_DIR` | `/claude/gh` | gh auth on the volume |
+| `HF_HOME` | `/claude/hf-cache` | Whisper model cache on the volume |
+
+## Updating Claude Code
+
+The pinned version is a build arg, and both the auto-updater and manual `claude update` are disabled inside the container (`DISABLE_AUTOUPDATER=1`, `DISABLE_UPDATES=1`) — the image is the single source of truth for what's running.
+
+```bash
+# check what's current
+npm view @anthropic-ai/claude-code version
+
+# rebuild against it
+docker compose build --build-arg CLAUDE_CODE_VERSION=2.1.209 claude-code
+docker compose up -d claude-code
+```
+
+Or bump the `ARG CLAUDE_CODE_VERSION` default in `claude-code/Dockerfile` and let CI build it.
+
+## CI
+
+Pushes to `main` build the image, push `latest` + commit-SHA tags to ghcr, and smoke-test that `claude --version` runs (`.github/workflows/docker-image.yml`).
+
+## Repo layout
+
+```
+claude-code/     Dockerfile + entrypoint for the dev container image
+example/         Reference compose.yml
+bin/             claude-container: standalone launcher for one-off local runs
+completions/     Bash completions for the launcher
+docs/            Auth walkthrough screenshots
+```
+
+The `bin/claude-container` launcher predates the SSH-server workflow and still targets the upstream `nezhar/claude-container` image by default (override with `CLAUDE_IMAGE=ghcr.io/thepharmer/claude-dev:latest`). It's kept for quick throwaway sessions on machines without the compose setup.
