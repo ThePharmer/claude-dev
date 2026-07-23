@@ -25,19 +25,20 @@ services:
 
   # ---------------------------------------------------------------------------
   # Paseo daemon + web UI sidecar. A separate multi-agent orchestration surface
-  # alongside cloudcli. Reached via the Cloudflare tunnel
-  # (paseo.example.com -> paseo:6767) on the shared compose network; NO host
-  # port is published.
+  # alongside cloudcli.
   #
-  # CREDENTIALS: SEPARATE by default. This container ships its own Claude/Codex/Pi
-  # CLIs (see ../docker/paseo/Dockerfile) and keeps their auth under the paseo-home
-  # volume - independent of claude-code's /claude. Log in once:
-  #     docker exec -it -u paseo paseo claude
-  #     docker exec -it -u paseo paseo codex
-  #     docker exec -it -u paseo paseo pi
-  # To SHARE claude-code's creds instead, mount `claude-config:/claude` here and set
-  # CLAUDE_CONFIG_DIR=/claude + CODEX_HOME=/claude/codex (weigh the lock/session
-  # contention noted in the branch review before doing so).
+  # CREDENTIALS + TRANSCRIPTS: FULL SHARE of the claude-config (/claude) volume.
+  # Paseo's Claude/Codex therefore reuse claude-code's existing logins AND see the
+  # same ~3.8GB transcript history under /claude/projects - no second login, unified
+  # history. Trade-off (accepted, single-user behind Cloudflare Access + password):
+  # this tunnel-reachable container can also read /claude/gh and the cloudcli auth DB.
+  # HARD REQUIREMENT: both containers must run as uid/gid 1000 (Paseo is fixed at 1000;
+  # /claude is owned by 1000). Do NOT set USER_UID != 1000 on claude-code while sharing
+  # this volume, or 0600 credential files become cross-unreadable.
+  #
+  # ACCESS: published host port (6767) matches how the cloudflared stack reaches
+  # cloudcli's 3001. Point a new Cloudflare public hostname (paseo.example.com) at
+  # the host's :6767, same origin host as the existing cc.example.com route.
   # ---------------------------------------------------------------------------
   paseo:
     build:
@@ -45,15 +46,25 @@ services:
       dockerfile: Dockerfile
     image: thepharmer/paseo-agents:latest
     container_name: paseo
-    depends_on:
-      - claude-code
+    working_dir: /srv
+    ports:
+      # Matches the cloudcli 3001 pattern (host-port model; the separate cloudflared
+      # stack reaches the origin via the host). Protected by Cloudflare Access + the
+      # Paseo password - not by network isolation, same as cloudcli today.
+      - "6767:6767"
     volumes:
-      - paseo-home:/home/paseo   # daemon state + agent creds (.claude/.codex/.pi)
+      - paseo-home:/home/paseo   # Paseo's OWN daemon state (.paseo) - not shared
+      - claude-config:/claude    # shared agent creds + transcripts (full-share model)
       - /srv:/srv                # same absolute path as claude-code so agent cwd/paths align
     environment:
       - TZ=America/Detroit
+      # Point the agent CLIs at the shared /claude volume (overrides the base image's
+      # /home/paseo defaults) so Claude transcripts/auth, Codex, and Pi are all shared.
+      - CLAUDE_CONFIG_DIR=/claude
+      - CODEX_HOME=/claude/codex
+      - PI_CODING_AGENT_DIR=/claude/pi/agent   # see README: verify pi's own config env
       - PASEO_HOSTNAMES=paseo.example.com
-      - PASEO_PASSWORD_FILE=/run/secrets/paseo_password
+      - PASEO_PASSWORD_FILE=/run/secrets/paseo_password   # bridged to PASEO_PASSWORD by the image entrypoint
     secrets:
       - paseo_password
     healthcheck:
@@ -69,8 +80,8 @@ volumes:
   paseo-home:
 
 secrets:
-  # High-entropy value, mode 0600, created on the host (do not commit). The Paseo
-  # daemon reads it via PASEO_PASSWORD_FILE. Required because the daemon is reachable
-  # over the public tunnel - static UI is public, but API/WebSocket auth needs it.
+  # High-entropy value, mode 0600, created on the host (do not commit). The image's
+  # password-entrypoint reads this file and exports PASEO_PASSWORD (Paseo does not read
+  # PASEO_PASSWORD_FILE itself). Required - the daemon is reachable over the public tunnel.
   paseo_password:
     file: /opt/claude-dev/secrets/paseo_password

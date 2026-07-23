@@ -87,7 +87,7 @@ ARG PI_VERSION="0.81.1"
 RUN npm install -g "@openai/codex@${CODEX_VERSION}" \
     && codex --version
 RUN npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" \
-    && command -v pi
+    && pi --version
 
 RUN mkdir -p /claude /srv
 WORKDIR /srv

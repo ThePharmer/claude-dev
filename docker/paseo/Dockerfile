@@ -3,8 +3,8 @@
 # baked into the claude-dev image so both surfaces run the same releases; upgrade by
 # bumping these ARGs and rebuilding (matches claude-dev's rebuild-to-upgrade model).
 #
-# Base pinned to a released tag. For full reproducibility, append the multi-arch digest:
-#   FROM ghcr.io/getpaseo/paseo:0.1.110@sha256:<digest>
+# Base pinned to a released tag. TODO(reproducibility): pin by digest once verifiable from a
+# host with Docker/registry access:  FROM ghcr.io/getpaseo/paseo:0.1.110@sha256:<digest>
 FROM ghcr.io/getpaseo/paseo:0.1.110
 
 ARG CLAUDE_CODE_VERSION="2.1.209"
@@ -21,11 +21,19 @@ RUN npm install -g \
     && npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" \
     && claude --version \
     && codex --version \
-    && command -v pi \
+    && pi --version \
     && npm cache clean --force
 
+# Password-secret bridge: reads PASEO_PASSWORD_FILE -> exports PASEO_PASSWORD -> execs the
+# stock Paseo entrypoint. Required because Paseo reads only PASEO_PASSWORD, not the _FILE
+# form; without this a mounted Compose secret is ignored and the public daemon starts
+# unauthenticated. tini stays PID 1; the wrapper sits between tini and the base entrypoint.
+COPY rootfs/ /
+RUN chmod +x /usr/local/bin/paseo-password-entrypoint
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/paseo-password-entrypoint"]
+
 # Lock Claude Code to the pin (no in-container self-update), same as claude-dev.
-# HOME=/home/paseo is the persisted volume, so agent creds under .claude/.codex/.pi and
-# Paseo state under .paseo all survive recreation with no extra symlinks needed here.
+# Agent config/creds + transcripts are shared from claude-dev via CLAUDE_CONFIG_DIR=/claude
+# etc. set in compose (full-share model); Paseo's OWN daemon state stays under /home/paseo.
 ENV DISABLE_AUTOUPDATER=1 \
     DISABLE_UPDATES=1
