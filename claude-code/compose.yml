@@ -23,5 +23,54 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------------
+  # Paseo daemon + web UI sidecar. A separate multi-agent orchestration surface
+  # alongside cloudcli. Reached via the Cloudflare tunnel
+  # (paseo.example.com -> paseo:6767) on the shared compose network; NO host
+  # port is published.
+  #
+  # CREDENTIALS: SEPARATE by default. This container ships its own Claude/Codex/Pi
+  # CLIs (see ../docker/paseo/Dockerfile) and keeps their auth under the paseo-home
+  # volume - independent of claude-code's /claude. Log in once:
+  #     docker exec -it -u paseo paseo claude
+  #     docker exec -it -u paseo paseo codex
+  #     docker exec -it -u paseo paseo pi
+  # To SHARE claude-code's creds instead, mount `claude-config:/claude` here and set
+  # CLAUDE_CONFIG_DIR=/claude + CODEX_HOME=/claude/codex (weigh the lock/session
+  # contention noted in the branch review before doing so).
+  # ---------------------------------------------------------------------------
+  paseo:
+    build:
+      context: ../docker/paseo
+      dockerfile: Dockerfile
+    image: thepharmer/paseo-agents:latest
+    container_name: paseo
+    depends_on:
+      - claude-code
+    volumes:
+      - paseo-home:/home/paseo   # daemon state + agent creds (.claude/.codex/.pi)
+      - /srv:/srv                # same absolute path as claude-code so agent cwd/paths align
+    environment:
+      - TZ=America/Detroit
+      - PASEO_HOSTNAMES=paseo.example.com
+      - PASEO_PASSWORD_FILE=/run/secrets/paseo_password
+    secrets:
+      - paseo_password
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:6767/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
 volumes:
   claude-config:
+  paseo-home:
+
+secrets:
+  # High-entropy value, mode 0600, created on the host (do not commit). The Paseo
+  # daemon reads it via PASEO_PASSWORD_FILE. Required because the daemon is reachable
+  # over the public tunnel - static UI is public, but API/WebSocket auth needs it.
+  paseo_password:
+    file: /opt/claude-dev/secrets/paseo_password

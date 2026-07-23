@@ -53,6 +53,14 @@ if [ -d /claude ]; then
     chmod 755 /claude 2>/dev/null || true
 fi
 
+# Codex + Pi state dirs on the /claude volume (targets of the ~/.codex and ~/.pi
+# symlinks baked into the image). Create + own them here so the symlinks are never
+# dangling on a fresh volume, mirroring how /claude itself is handled above.
+for d in /claude/codex /claude/pi; do
+    mkdir -p "$d" 2>/dev/null || true
+    chown "$USER_UID:$USER_GID" "$d" 2>/dev/null || true
+done
+
 # Ensure workspace is accessible (don't recursive chown - host owns the files)
 if [ -d /srv ]; then
     chmod 755 /srv 2>/dev/null || true

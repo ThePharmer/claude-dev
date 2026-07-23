@@ -78,6 +78,17 @@ RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
 RUN npm install -g @cloudcli-ai/cloudcli \
     && cloudcli --version
 
+# Codex + Pi coding agents. Pinned like Claude Code (rebuild-to-upgrade). These are for
+# interactive / cloudcli use INSIDE this container; the Paseo sidecar installs its own
+# copies separately. --ignore-scripts on pi follows its documented install (skips the
+# postinstall step); command -v is the smoke test (pi's --version semantics unverified).
+ARG CODEX_VERSION="0.145.0"
+ARG PI_VERSION="0.81.1"
+RUN npm install -g "@openai/codex@${CODEX_VERSION}" \
+    && codex --version
+RUN npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" \
+    && command -v pi
+
 RUN mkdir -p /claude /srv
 WORKDIR /srv
 
@@ -87,6 +98,13 @@ WORKDIR /srv
 # config volume out of any 'rm -rf ~/.claude' reset path and out of usermod's
 # recursive rechown when USER_UID is remapped at runtime.
 RUN rm -rf /home/claude/.claude && ln -s /claude /home/claude/.claude
+
+# Same pattern for Codex + Pi state so their config/sessions persist on the /claude
+# volume. cloudcli hardcodes ~/.codex/sessions and pi defaults to ~/.pi, so symlink both
+# into the volume (CODEX_HOME below additionally covers tools that honor the env var).
+RUN rm -rf /home/claude/.codex /home/claude/.pi \
+    && ln -s /claude/codex /home/claude/.codex \
+    && ln -s /claude/pi    /home/claude/.pi
 
 # Lock the pinned version. DISABLE_AUTOUPDATER stops the background update check;
 # DISABLE_UPDATES additionally blocks manual 'claude update' / 'claude install', so
@@ -99,6 +117,10 @@ ENV DISABLE_AUTOUPDATER=1 \
 ENV SERVER_PORT=3001 \
     HOST=0.0.0.0 \
     DATABASE_PATH=/claude/cloudcli-auth.db
+
+# Codex honors CODEX_HOME; point it at the /claude volume so 'codex login' survives
+# container recreation, same as ~/.claude. (Pi uses ~/.pi, handled by the symlink above.)
+ENV CODEX_HOME=/claude/codex
 
 # gh stores auth/config under GH_CONFIG_DIR; pointing it at the /claude volume
 # means 'gh auth login' survives container recreation, same as ~/.claude does.
