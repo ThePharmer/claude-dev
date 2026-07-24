@@ -10,6 +10,12 @@ services:
     volumes:
       - /srv:/srv
       - claude-config:/claude
+      # Agent config on dedicated volumes rather than inside claude-config, so each tool's
+      # state can be backed up, inspected and reset independently. The image symlinks
+      # ~/.codex -> /codex, ~/.pi -> /pi and ~/.cloudcli -> /cloudcli onto these.
+      - codex-config:/codex
+      - pi-config:/pi
+      - cloudcli-config:/cloudcli
       - /opt/claude-dev/authorized_keys:/home/claude/.ssh/authorized_keys:ro
     environment:
       - TZ=America/Detroit
@@ -23,65 +29,11 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  # ---------------------------------------------------------------------------
-  # Paseo daemon + web UI sidecar. A separate multi-agent orchestration surface
-  # alongside cloudcli.
-  #
-  # CREDENTIALS + TRANSCRIPTS: FULL SHARE of the claude-config (/claude) volume.
-  # Paseo's Claude/Codex therefore reuse claude-code's existing logins AND see the
-  # same ~3.8GB transcript history under /claude/projects - no second login, unified
-  # history. Trade-off (accepted, single-user behind Cloudflare Access + password):
-  # this tunnel-reachable container can also read /claude/gh and the cloudcli auth DB.
-  # HARD REQUIREMENT: both containers must run as uid/gid 1000 (Paseo is fixed at 1000;
-  # /claude is owned by 1000). Do NOT set USER_UID != 1000 on claude-code while sharing
-  # this volume, or 0600 credential files become cross-unreadable.
-  #
-  # ACCESS: published host port (6767) matches how the cloudflared stack reaches
-  # cloudcli's 3001. Point a new Cloudflare public hostname (paseo.example.com) at
-  # the host's :6767, same origin host as the existing cc.example.com route.
-  # ---------------------------------------------------------------------------
-  paseo:
-    build:
-      context: ../docker/paseo
-      dockerfile: Dockerfile
-    image: thepharmer/paseo-agents:latest
-    container_name: paseo
-    working_dir: /srv
-    ports:
-      # Matches the cloudcli 3001 pattern (host-port model; the separate cloudflared
-      # stack reaches the origin via the host). Protected by Cloudflare Access + the
-      # Paseo password - not by network isolation, same as cloudcli today.
-      - "6767:6767"
-    volumes:
-      - paseo-home:/home/paseo   # Paseo's OWN daemon state (.paseo) - not shared
-      - claude-config:/claude    # shared agent creds + transcripts (full-share model)
-      - /srv:/srv                # same absolute path as claude-code so agent cwd/paths align
-    environment:
-      - TZ=America/Detroit
-      # Point the agent CLIs at the shared /claude volume (overrides the base image's
-      # /home/paseo defaults) so Claude transcripts/auth, Codex, and Pi are all shared.
-      - CLAUDE_CONFIG_DIR=/claude
-      - CODEX_HOME=/claude/codex
-      - PI_CODING_AGENT_DIR=/claude/pi/agent   # see README: verify pi's own config env
-      - PASEO_HOSTNAMES=paseo.example.com
-      - PASEO_PASSWORD_FILE=/run/secrets/paseo_password   # bridged to PASEO_PASSWORD by the image entrypoint
-    secrets:
-      - paseo_password
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:6767/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    restart: unless-stopped
+# Paseo is NOT a service here - it runs as its own standalone stack with its own
+# credentials, isolated from claude-config. See docker/paseo/compose.yaml.
 
 volumes:
   claude-config:
-  paseo-home:
-
-secrets:
-  # High-entropy value, mode 0600, created on the host (do not commit). The image's
-  # password-entrypoint reads this file and exports PASEO_PASSWORD (Paseo does not read
-  # PASEO_PASSWORD_FILE itself). Required - the daemon is reachable over the public tunnel.
-  paseo_password:
-    file: /opt/claude-dev/secrets/paseo_password
+  codex-config:
+  pi-config:
+  cloudcli-config:

@@ -53,12 +53,15 @@ if [ -d /claude ]; then
     chmod 755 /claude 2>/dev/null || true
 fi
 
-# Codex + Pi state dirs on the /claude volume (targets of the ~/.codex and ~/.pi
-# symlinks baked into the image). Create + own them here so the symlinks are never
-# dangling on a fresh volume, mirroring how /claude itself is handled above.
-for d in /claude/codex /claude/pi; do
-    mkdir -p "$d" 2>/dev/null || true
-    chown "$USER_UID:$USER_GID" "$d" 2>/dev/null || true
+# Codex / Pi / cloudcli config volumes (targets of the ~/.codex, ~/.pi and ~/.cloudcli
+# symlinks baked into the image). Own the mount points so the symlinks are never dangling
+# on a fresh volume, mirroring how /claude is handled above. Non-recursive on purpose: a
+# UID remap must not churn through every file these tools have written.
+for d in /codex /pi /cloudcli; do
+    if [ -d "$d" ]; then
+        chown "$USER_UID:$USER_GID" "$d" 2>/dev/null || true
+        chmod 755 "$d" 2>/dev/null || true
+    fi
 done
 
 # Ensure workspace is accessible (don't recursive chown - host owns the files)

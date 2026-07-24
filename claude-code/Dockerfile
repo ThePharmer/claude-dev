@@ -79,17 +79,22 @@ RUN npm install -g @cloudcli-ai/cloudcli \
     && cloudcli --version
 
 # Codex + Pi coding agents. Pinned like Claude Code (rebuild-to-upgrade). These are for
-# interactive / cloudcli use INSIDE this container; the Paseo sidecar installs its own
-# copies separately. --ignore-scripts on pi follows its documented install (skips the
-# postinstall step); command -v is the smoke test (pi's --version semantics unverified).
+# interactive / cloudcli use INSIDE this container; the standalone Paseo stack installs
+# its own copies at the same pins (docker/paseo/Dockerfile).
+# Pi has no install/postinstall hook - its only optional dep (@mariozechner/clipboard) is
+# a native module that is useless headless, and npm treats optional-dep failures as
+# non-fatal, so a plain install is safe here.
 ARG CODEX_VERSION="0.145.0"
-ARG PI_VERSION="0.81.1"
+ARG PI_VERSION="0.82.0"
 RUN npm install -g "@openai/codex@${CODEX_VERSION}" \
     && codex --version
-RUN npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" \
+RUN npm install -g "@earendil-works/pi-coding-agent@${PI_VERSION}" \
     && pi --version
 
-RUN mkdir -p /claude /srv
+# /codex, /pi and /cloudcli are mount points for their own named volumes. Kept top-level
+# (like /claude) so they stay out of usermod's recursive rechown path when USER_UID is
+# remapped at runtime, and so each tool's state can be backed up or reset independently.
+RUN mkdir -p /claude /srv /codex /pi /cloudcli
 WORKDIR /srv
 
 # Symlink ~/.claude -> /claude so the config path matches the mounted volume.
@@ -99,12 +104,13 @@ WORKDIR /srv
 # recursive rechown when USER_UID is remapped at runtime.
 RUN rm -rf /home/claude/.claude && ln -s /claude /home/claude/.claude
 
-# Same pattern for Codex + Pi state so their config/sessions persist on the /claude
-# volume. cloudcli hardcodes ~/.codex/sessions and pi defaults to ~/.pi, so symlink both
-# into the volume (CODEX_HOME below additionally covers tools that honor the env var).
-RUN rm -rf /home/claude/.codex /home/claude/.pi \
-    && ln -s /claude/codex /home/claude/.codex \
-    && ln -s /claude/pi    /home/claude/.pi
+# Same pattern for Codex, Pi and cloudcli, but onto their own volumes. The symlinks are
+# required (not just the env vars): cloudcli hardcodes ~/.codex/sessions, pi defaults to
+# ~/.pi, and cloudcli reads ~/.cloudcli with no relocate env var at all.
+RUN rm -rf /home/claude/.codex /home/claude/.pi /home/claude/.cloudcli \
+    && ln -s /codex    /home/claude/.codex \
+    && ln -s /pi       /home/claude/.pi \
+    && ln -s /cloudcli /home/claude/.cloudcli
 
 # Lock the pinned version. DISABLE_AUTOUPDATER stops the background update check;
 # DISABLE_UPDATES additionally blocks manual 'claude update' / 'claude install', so
@@ -118,9 +124,9 @@ ENV SERVER_PORT=3001 \
     HOST=0.0.0.0 \
     DATABASE_PATH=/claude/cloudcli-auth.db
 
-# Codex honors CODEX_HOME; point it at the /claude volume so 'codex login' survives
-# container recreation, same as ~/.claude. (Pi uses ~/.pi, handled by the symlink above.)
-ENV CODEX_HOME=/claude/codex
+# Codex honors CODEX_HOME; point it at its own volume so 'codex login' survives container
+# recreation, same as ~/.claude does. (Pi uses ~/.pi, handled by the symlink above.)
+ENV CODEX_HOME=/codex
 
 # gh stores auth/config under GH_CONFIG_DIR; pointing it at the /claude volume
 # means 'gh auth login' survives container recreation, same as ~/.claude does.
