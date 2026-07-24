@@ -1,0 +1,90 @@
+# Paseo - standalone stack, independent of the claude-code stack.
+#
+# Deliberately shares NOTHING with the claude-config volume: Paseo keeps its own agent
+# logins under the paseo-home volume. You log into claude/codex/pi once inside this
+# container (see below). Nothing here can read claude-dev's gh token or cloudcli DB, and
+# tearing the whole thing down is 'docker compose down -v' with no risk to your dev box.
+#
+# The only thing shared with claude-dev is the code itself: /srv is bind-mounted at the
+# SAME absolute path both containers use, so agent cwd, git worktree paths and any
+# absolute paths stay consistent between the two surfaces.
+#
+#   Setup (once, on the host):
+#     install -d -m 700 /opt/claude-dev/secrets
+#     openssl rand -base64 32 > /opt/claude-dev/secrets/paseo_password
+#     chmod 600 /opt/claude-dev/secrets/paseo_password
+#
+#   Bring up:
+#     docker compose -f docker/paseo/compose.yaml up -d --build
+#
+#   Authenticate the agents (first run only - persists on the paseo-home volume):
+#     docker exec -it --user paseo paseo claude
+#     docker exec -it --user paseo paseo codex
+#     docker exec -it --user paseo paseo pi
+#
+#   Verify Paseo sees them:
+#     docker exec -u paseo paseo paseo ls
+name: paseo
+
+services:
+  paseo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: thepharmer/paseo-agents:latest
+    container_name: paseo
+    restart: unless-stopped
+
+    # Host-port model, matching how the separate cloudflared stack already reaches
+    # cloudcli on :3001. Protected by the Paseo password + Cloudflare Access, not by
+    # network isolation.
+    ports:
+      - "6767:6767"
+
+    volumes:
+      # Paseo daemon state AND all agent credentials (.claude, .codex, plus Pi's XDG
+      # dirs) - the base image points every agent config path under /home/paseo, so this
+      # one volume is the whole persistence story.
+      - paseo-home:/home/paseo
+      # Same absolute path as claude-code uses, so paths line up across both containers.
+      - /srv:/srv
+
+    # Base image defaults to /workspace, which isn't mounted here.
+    working_dir: /srv
+
+    environment:
+      TZ: America/Detroit
+      # Read by entrypoint.sh, exported as PASEO_PASSWORD, then unset. The daemon refuses
+      # to start if this is missing or unreadable.
+      PASEO_PASSWORD_FILE: /run/secrets/paseo_password
+      # Required because Paseo is reached by DNS name through the Cloudflare tunnel.
+      # IPs and localhost stay allowed by default, so host-IP testing still works.
+      # NOTE: this must match the Host header Paseo actually RECEIVES. If the cloudflared
+      # connector sets httpHostHeader it rewrites that header and requests 403 even though
+      # the route is correct - see README troubleshooting.
+      PASEO_HOSTNAMES: "paseo.example.com"
+
+    secrets:
+      - paseo_password
+
+    # Uses node (guaranteed present in this Node 22 base) rather than assuming curl is
+    # installed in the image.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:6767/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  # Not external: this stack owns it. Holds Paseo state + all three agents' logins.
+  paseo-home:
+
+secrets:
+  # High-entropy value, mode 0600, created on the host - do not commit.
+  paseo_password:
+    file: /opt/claude-dev/secrets/paseo_password
