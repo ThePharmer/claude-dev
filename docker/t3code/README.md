@@ -69,17 +69,21 @@ image needs no equivalent of Paseo's password-bridge entrypoint.
 
 ## Setup (Portainer)
 
-The image is **built by CI, not by the stack**, for the same reason the paseo stack is.
+T3 Code is a **service inside the `paseo` stack**, not a stack of its own — both UIs share
+one volume so they drive the same agent logins, and folding them into one Compose project
+is what lets them reference `paseo-home` directly instead of hardcoding an external volume
+name. Deploy instructions live in `docker/paseo/README.md`; this file covers T3 Code itself.
+
+The image is **built by CI, not by the stack**, for the same reason the paseo image is.
 `.github/workflows/docker-image.yml` publishes `ghcr.io/thepharmer/t3code-agents`.
 
-1. **Deploy the `paseo` stack first.** This stack attaches its volume as `external`, so it
-   will refuse to start if `paseo_paseo-home` does not exist. That is intentional: the
-   alternative is Docker silently creating an empty volume and T3 Code coming up with no
-   agent logins, which looks like an auth bug rather than a wiring mistake.
-2. **Wait for CI.** Pushing to `t3-paseo-test` builds and tags the image `:t3-paseo-test`.
+1. **Wait for CI.** Pushing to `t3-paseo-test` builds and tags the image `:t3-paseo-test`.
    Only `main` moves `:latest`, and this branch is not meant to be merged unless T3 Code wins.
-3. **Create the stack** in Portainer from this repo, compose path `docker/t3code/compose.yaml`.
-4. **Set the stack environment variables:**
+2. **Deploy the `paseo` stack** (compose path `docker/paseo/compose.yaml`) — it brings up
+   both `paseo` and `t3code`. Keep the stack named `paseo`: Compose namespaces volumes by
+   project, so renaming it creates an empty `paseo-home` and both services come up with no
+   agent logins.
+3. **Set the stack environment variables:**
 
    | Variable | Required | Notes |
    |---|---|---|
@@ -163,7 +167,7 @@ check what `/` actually returns.
 ## Teardown
 
 ```bash
-docker compose -f docker/t3code/compose.yaml down
+docker compose -f docker/paseo/compose.yaml stop t3code
 ```
 
 **Never with `-v`.** The volume belongs to the paseo stack; `-v` on a shared external volume
