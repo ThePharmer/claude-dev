@@ -24,6 +24,12 @@ services:
     working_dir: /srv
     environment:
       TZ: America/Detroit
+      # Gives Paseo's web terminals bash (and therefore a cwd in the prompt) without
+      # waiting on a CI image rebuild - Paseo falls back to /bin/sh -> dash, whose
+      # prompt is a bare "$ ", whenever SHELL is unset. Redundant once an image built
+      # from the current Dockerfile (which bakes ENV SHELL=/bin/bash) is deployed;
+      # safe to drop then.
+      SHELL: /bin/bash
       PASEO_PASSWORD: ${PASEO_PASSWORD:?PASEO_PASSWORD must be set as an environment variable}
       PASEO_HOSTNAMES: ${PASEO_HOSTNAMES}
       # NOTE: this must match the Host header Paseo actually RECEIVES. If the cloudflared

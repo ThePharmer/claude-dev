@@ -81,7 +81,7 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
          > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends gh \
+    && apt-get install -y --no-install-recommends gh bash-completion \
     && rm -rf /var/lib/apt/lists/* \
     && gh --version
 
@@ -97,5 +97,24 @@ ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/paseo-password-entrypoint"]
 # Match claude-dev's rebuild-to-upgrade model: no in-container self-update.
 ENV DISABLE_AUTOUPDATER=1 \
     DISABLE_UPDATES=1
+
+# Paseo's web terminals resolve their shell as `env.SHELL || "/bin/sh"`
+# (@getpaseo/server dist/server/terminal/terminal.js, resolveDefaultTerminalShell).
+# Docker sets no SHELL in a container's environment, so every terminal fell back to
+# /bin/sh -> dash, whose built-in prompt is a bare "$ " with no cwd. dash also never
+# reads /etc/bash.bashrc or ~/.bashrc, so nothing could fix the prompt from the home
+# volume. Naming bash here is what makes a prompt configurable at all - it gets the stock
+# Debian '\u@\h:\w\$ ' from /etc/bash.bashrc, which the next layer then builds on.
+ENV SHELL=/bin/bash
+
+# ...and give that bash a usable interactive setup: colour prompt with cwd, the cwd on the
+# web UI's terminal tab, shared-safe history across concurrent terminals, and completion.
+# This has to be system-wide rather than a ~/.bashrc: /home/paseo is a named volume, so
+# anything written to the home directory at build time is masked on an existing volume.
+COPY bashrc.sh /etc/paseo-bashrc.sh
+RUN chmod 0644 /etc/paseo-bashrc.sh \
+    && printf '\n# Paseo container interactive-shell defaults.\n[ -r /etc/paseo-bashrc.sh ] && . /etc/paseo-bashrc.sh\n' \
+         >> /etc/bash.bashrc \
+    && bash -ic 'case "$PS1" in *\\w*) echo "interactive prompt OK: $PS1" ;; *) echo "FATAL: /etc/paseo-bashrc.sh did not take effect"; exit 1 ;; esac'
 
 EXPOSE 6767

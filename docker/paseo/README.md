@@ -10,6 +10,8 @@ Codex and Pi baked in, rather than something that talks to the `claude-code` con
 - **`Dockerfile`** — `ghcr.io/getpaseo/paseo:0.2.1` plus the three agent CLIs, pinned to the
   same versions as `claude-code/Dockerfile`.
 - **`entrypoint.sh`** — password-secret bridge; fails closed (see below).
+- **`bashrc.sh`** — interactive-shell defaults for the web terminals; installed to
+  `/etc/paseo-bashrc.sh` rather than a home directory (see troubleshooting).
 - **`compose.yaml`** — the stack itself.
 
 ## Credentials: ISOLATED (no share with claude-dev)
@@ -102,6 +104,14 @@ is correct. Check the connector config — this is not a password problem.
 
 **Healthcheck flapping.** The check hits `/api/health`. That endpoint is confirmed for 0.1.110;
 if 0.2.x moved it, point the check at `/` instead.
+
+**Terminal prompt is a bare `$` with no working directory.** `SHELL` is unset in the
+container env, so Paseo's `env.SHELL || "/bin/sh"` falls back to dash. The Dockerfile sets
+`ENV SHELL=/bin/bash` and compose passes `SHELL: /bin/bash`; if you see this again, check
+that neither was dropped. Interactive bash setup (colour prompt, aliases, history, completion)
+lives in `bashrc.sh` → `/etc/paseo-bashrc.sh`, sourced from `/etc/bash.bashrc`. It is
+deliberately *not* a `~/.bashrc`: `/home/paseo` is a volume, so a home-directory file would be
+masked on existing volumes and invisible to fresh ones.
 
 **Permissions on `/srv`.** Paseo is fixed at uid/gid 1000 and `/srv` is already owned by 1000,
 matching `claude-code`. Don't run `claude-code` with `USER_UID != 1000` — it would rewrite
