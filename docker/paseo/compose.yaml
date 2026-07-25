@@ -23,7 +23,7 @@ services:
     working_dir: /srv
     environment:
       TZ: America/Detroit
-      PASEO_PASSWORD: ${PASEO_PASSWORD}
+      PASEO_PASSWORD: ${PASEO_PASSWORD:?PASEO_PASSWORD must be set as an environment variable}
       PASEO_HOSTNAMES: ${PASEO_HOSTNAMES}
       # NOTE: this must match the Host header Paseo actually RECEIVES. If the cloudflared
       # connector sets httpHostHeader it rewrites that header and requests 403 even though
