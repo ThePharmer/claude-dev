@@ -2,17 +2,6 @@
 #   Both web UIs drive the same agent logins and the same /srv checkout, so differences
 #   you observe are differences in the tools, not in their setup. See docs/t3-vs-paseo.md.
 #
-#   ‼️ KEEP THE PORTAINER STACK NAMED 'paseo'. Compose namespaces volumes by project, so
-#   paseo-home is really 'paseo_paseo-home' on the host. Renaming the stack silently
-#   creates a NEW EMPTY volume - losing every agent login, the daemon keypair, and the
-#   downloaded speech models - rather than failing loudly. (These were two stacks, and
-#   t3code had to declare the volume 'external' with that exact name to share it; folding
-#   them into one project is what removes that hardcoded guess.)
-#
-#   There is deliberately no 'build:' directive - Portainer does not reliably build images
-#   from a stack (docs: "building images via docker-compose ... is not fully implemented").
-#   CI publishes both images to ghcr instead; this stack only pulls them.
-#
 #   After first deploy, authenticate each agent ONCE - both services share the volume, so
 #   logging in through either one covers both:
 #     docker exec -it --user paseo paseo claude
@@ -46,10 +35,7 @@ services:
       SHELL: /bin/bash
       PASEO_PASSWORD: ${PASEO_PASSWORD:?PASEO_PASSWORD must be set as an environment variable}
       PASEO_HOSTNAMES: ${PASEO_HOSTNAMES}
-      # NOTE: this must match the Host header Paseo actually RECEIVES. If the cloudflared
-      # connector sets httpHostHeader it rewrites that header and requests 403 even though
-      # the route is correct - see README troubleshooting.
-      #
+      PASEO_RELAY_ENABLED: "false"
       # Disable the relay. It is a SECOND ingress that the Cloudflare tunnel never sees, and
       # on that path the daemon does not check PASEO_PASSWORD or PASEO_HOSTNAMES - the E2EE
       # handshake is the only authenticator (websocket-server.ts attachExternalSocket calls
@@ -66,7 +52,6 @@ services:
       # Default is true - this must be set explicitly. Re-enable only once upstream rejects
       # low-order points, and understand that even then the pairing link is an unrevocable,
       # non-expiring bearer credential with no IdP check on that path.
-      PASEO_RELAY_ENABLED: "false"
     healthcheck:
       test:
         - CMD
@@ -87,26 +72,16 @@ services:
     ports:
       - "3773:3773"
     volumes:
-      # The SAME volume the paseo service uses - not a copy. Both containers read and
-      # write /home/paseo/.claude and /home/paseo/.codex, which is what makes the
-      # comparison fair. T3 Code's own state sits beside Paseo's under .t3code.
       - paseo-home:/home/paseo
       - /srv:/srv
     working_dir: /srv
     environment:
       TZ: America/Detroit
-      # Required. The entrypoint refuses to start without it, because T3 Code otherwise
-      # binds loopback inside the container and the published port goes nowhere.
       T3CODE_HOST: 0.0.0.0
       T3CODE_PORT: 3773
       T3CODE_HOME: /home/paseo/.t3code
-      # No PostHog, and no T3 Connect: the Cloudflare tunnel is the only ingress, so there
-      # is no reason for this container to fetch a cloudflared binary at runtime.
       T3CODE_TELEMETRY_ENABLED: "false"
     healthcheck:
-      # Any HTTP response below 500 means the server is up. Deliberately NOT requiring 200:
-      # once bound to a wildcard host T3 Code treats itself as remote-reachable and may
-      # answer an unauthenticated probe with 401/403, which is healthy, not broken.
       test:
         - CMD
         - node
@@ -118,7 +93,7 @@ services:
       start_period: 30s
 
 volumes:
+  paseo-home:
   # Shared by both services. Holds Paseo daemon state, T3 Code state, and ALL agent
   # logins. Resolves to 'paseo_paseo-home' as long as the stack is named 'paseo' - see
   # the warning at the top before renaming anything.
-  paseo-home:
