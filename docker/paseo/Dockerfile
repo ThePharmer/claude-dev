@@ -85,6 +85,31 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/* \
     && gh --version
 
+# Restore Claude thinking/reasoning in the Paseo timeline.
+#
+# Paseo builds the Claude thinking option as `{ type: "adaptive" }` with no `display`
+# field, so it inherits the Anthropic API default `display: "omitted"` - which on Opus 5,
+# Sonnet 5, Fable 5, Opus 4.8 and Opus 4.7 returns thinking blocks with an EMPTY
+# `thinking` string and only an encrypted `signature`. Paseo's extractor requires
+# non-empty text (dist .../providers/claude/agent.js, extractFragments), so it produces
+# zero `reasoning` timeline items and no thinking is ever rendered. Verified on this
+# image: `claude -p --effort high` alone yields 0 chars of thinking text, while adding
+# `--thinking-display summarized` yields 780 chars over 7 non-empty deltas.
+#
+# This is not configurable from outside: there is no daemon-level override in
+# persisted-config, the `autoExpandReasoning` UI setting is display-only, and the
+# per-agent `extra.claude` escape hatch does not carry to newly created agents.
+# Upstream has no issue filed and 0.2.1 is the latest release, so patch the two call
+# sites in the published dist. Asserts on both sides so a base-image bump fails the
+# build loudly instead of silently reverting to no-thinking.
+RUN AGENT_JS=/usr/local/lib/node_modules/@getpaseo/server/dist/server/server/agent/providers/claude/agent.js \
+    && test -f "$AGENT_JS" \
+    && test "$(grep -c 'type: "adaptive" }' "$AGENT_JS")" = "2" \
+    && sed -i 's/{ type: "adaptive" }/{ type: "adaptive", display: "summarized" }/g' "$AGENT_JS" \
+    && test "$(grep -c 'display: "summarized"' "$AGENT_JS")" = "2" \
+    && node --check "$AGENT_JS" \
+    && echo "Patched Paseo Claude provider: thinking display=summarized"
+
 # Password-secret bridge. Paseo reads only PASEO_PASSWORD; a Compose secret arrives as a
 # FILE, so without this the secret is silently ignored and a tunnel-reachable daemon comes
 # up UNAUTHENTICATED. Sits between tini and the stock entrypoint, which is left untouched.
