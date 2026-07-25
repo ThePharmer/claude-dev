@@ -35,6 +35,21 @@ ARG PI_VERSION="0.82.1"
 # root and deliberately do NOT set USER - overriding it would break that drop.
 USER root
 
+# bubblewrap backs Codex's Linux sandbox. Without it on PATH Codex warns and falls back to
+# its bundled copy - functional, but noisy and unpinned to the distro build. Installing the
+# package is all that is needed; it requires NO Docker security relaxation.
+#
+# Deliberately NOT setuid (upstream's secure devcontainer does 'chmod u+s /usr/bin/bwrap'
+# because it runs non-root, as we do). A setuid-root binary in a tunnel-reachable container
+# is a worse trade than Codex's fallback, so add it only if the sandbox is proven broken.
+# Likewise NOT adding SYS_ADMIN/seccomp=unconfined/apparmor=unconfined: those relax the
+# container boundary that actually protects the host in order to build a weaker one inside
+# it. Verify with:  codex sandbox linux --full-auto -- /bin/sh -lc 'echo inner-ok'
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bubblewrap \
+    && rm -rf /var/lib/apt/lists/* \
+    && bwrap --version
+
 # Pi's only optional dependency (@mariozechner/clipboard) is a native module that is
 # useless in a headless container; npm treats optionalDependencies failures as non-fatal,
 # so a build host without its toolchain still produces a working image.
