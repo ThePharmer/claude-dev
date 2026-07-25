@@ -29,7 +29,7 @@ FROM ghcr.io/getpaseo/paseo:0.2.1
 # unlike a full-share setup, drift here cannot corrupt claude-dev.
 ARG CLAUDE_CODE_VERSION="2.1.219"
 ARG CODEX_VERSION="0.145.0"
-ARG PI_VERSION="0.82.0"
+ARG PI_VERSION="0.82.1"
 
 # The base leaves User unset and drops privileges in its own entrypoint, so install as
 # root and deliberately do NOT set USER - overriding it would break that drop.
