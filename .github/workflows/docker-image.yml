@@ -2,7 +2,9 @@ name: Build and Push Images
 
 on:
   push:
-    branches: [main]
+    # paseo-test builds so the Paseo stack can be deployed and tested in Portainer before
+    # merging. Branch builds are tagged with the branch name, never ':latest' - see below.
+    branches: [main, paseo-test]
   workflow_dispatch:  # Manual trigger
 
 jobs:
@@ -11,31 +13,46 @@ jobs:
     permissions:
       contents: read
       packages: write
-    
+
     strategy:
       matrix:
         include:
           - context: ./claude-code
             image: claude-dev
+          - context: ./docker/paseo
+            image: paseo-agents
 
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      
+
+      # The moving tag is 'latest' on main and the branch name everywhere else. Without
+      # this, a push to any non-main branch would overwrite claude-dev:latest - which the
+      # production claude-code stack deploys from - with unreviewed branch content.
       - uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.context }}
           push: true
           tags: |
-            ghcr.io/thepharmer/${{ matrix.image }}:latest
+            ghcr.io/thepharmer/${{ matrix.image }}:${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
             ghcr.io/thepharmer/${{ matrix.image }}:${{ github.sha }}
 
       - name: Smoke test claude-code
         if: matrix.image == 'claude-dev'
         run: |
           docker run --rm --entrypoint claude ghcr.io/thepharmer/claude-dev:${{ github.sha }} --version
+
+      # Overrides the password-bridge entrypoint on purpose: this checks the agent CLIs
+      # are installed and runnable, not the daemon startup path.
+      - name: Smoke test paseo-agents
+        if: matrix.image == 'paseo-agents'
+        run: |
+          IMAGE=ghcr.io/thepharmer/paseo-agents:${{ github.sha }}
+          docker run --rm --entrypoint claude "$IMAGE" --version
+          docker run --rm --entrypoint codex  "$IMAGE" --version
+          docker run --rm --entrypoint pi     "$IMAGE" --version

@@ -1,37 +1,35 @@
-# Paseo - standalone stack, independent of the claude-code stack.
+# Paseo - standalone stack, independent of the claude-code stack. Deployed via Portainer.
 #
 # Deliberately shares NOTHING with the claude-config volume: Paseo keeps its own agent
 # logins under the paseo-home volume. You log into claude/codex/pi once inside this
 # container (see below). Nothing here can read claude-dev's gh token or cloudcli DB, and
-# tearing the whole thing down is 'docker compose down -v' with no risk to your dev box.
+# tearing the whole thing down removes only this stack's state.
 #
 # The only thing shared with claude-dev is the code itself: /srv is bind-mounted at the
 # SAME absolute path both containers use, so agent cwd, git worktree paths and any
 # absolute paths stay consistent between the two surfaces.
 #
-#   Setup (once, on the host):
-#     install -d -m 700 /opt/claude-dev/secrets
-#     openssl rand -base64 32 > /opt/claude-dev/secrets/paseo_password
-#     chmod 600 /opt/claude-dev/secrets/paseo_password
+# PORTAINER DEPLOYMENT
+#   There is deliberately no 'build:' directive here - Portainer does not reliably build
+#   images from a stack (see docs: "building images via docker-compose ... is not fully
+#   implemented"). CI publishes the image to ghcr instead; this stack only pulls it.
 #
-#   Bring up:
-#     docker compose -f docker/paseo/compose.yaml up -d --build
+#   Required stack environment variables (Portainer -> Stack -> Environment variables):
+#     PASEO_PASSWORD    high-entropy value; the daemon is reachable over the tunnel.
+#     PASEO_IMAGE_TAG   optional; defaults to 'latest'. Set to 'paseo-test' to run the
+#                       branch build before merging to main.
 #
-#   Authenticate the agents (first run only - persists on the paseo-home volume):
+#   After first deploy, authenticate each agent once (persists on the paseo-home volume):
 #     docker exec -it --user paseo paseo claude
 #     docker exec -it --user paseo paseo codex
 #     docker exec -it --user paseo paseo pi
-#
-#   Verify Paseo sees them:
-#     docker exec -u paseo paseo paseo ls
-name: paseo
+#     docker exec -u paseo paseo paseo ls      # confirm Paseo sees all three
 
 services:
   paseo:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: thepharmer/paseo-agents:latest
+    # Pre-built by .github/workflows/docker-image.yml. Tag is overridable so a test stack
+    # can run the branch image without touching whatever ':latest' points at.
+    image: ghcr.io/thepharmer/paseo-agents:${PASEO_IMAGE_TAG:-latest}
     container_name: paseo
     restart: unless-stopped
 
@@ -54,18 +52,16 @@ services:
 
     environment:
       TZ: America/Detroit
-      # Read by entrypoint.sh, exported as PASEO_PASSWORD, then unset. The daemon refuses
-      # to start if this is missing or unreadable.
-      PASEO_PASSWORD_FILE: /run/secrets/paseo_password
+      # Supplied as a Portainer stack environment variable. The ':?' form fails the deploy
+      # immediately if it is unset, rather than silently starting an unauthenticated
+      # daemon; the image entrypoint independently fails closed as a second guard.
+      PASEO_PASSWORD: ${PASEO_PASSWORD:?set PASEO_PASSWORD in the Portainer stack environment variables}
       # Required because Paseo is reached by DNS name through the Cloudflare tunnel.
       # IPs and localhost stay allowed by default, so host-IP testing still works.
       # NOTE: this must match the Host header Paseo actually RECEIVES. If the cloudflared
       # connector sets httpHostHeader it rewrites that header and requests 403 even though
       # the route is correct - see README troubleshooting.
       PASEO_HOSTNAMES: "paseo.example.com"
-
-    secrets:
-      - paseo_password
 
     # Uses node (guaranteed present in this Node 22 base) rather than assuming curl is
     # installed in the image.
@@ -81,10 +77,6 @@ services:
       start_period: 30s
 
 volumes:
-  # Not external: this stack owns it. Holds Paseo state + all three agents' logins.
+  # Portainer prefixes this with the stack name. Holds Paseo state + all three agents'
+  # logins - back it up before recreating the stack if you don't want to re-authenticate.
   paseo-home:
-
-secrets:
-  # High-entropy value, mode 0600, created on the host - do not commit.
-  paseo_password:
-    file: /opt/claude-dev/secrets/paseo_password

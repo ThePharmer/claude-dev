@@ -44,37 +44,50 @@ containers use, so agent cwd, git worktree paths and absolute paths stay consist
 > on the `paseo-pi-sidecar` branch — it mounts `claude-config` and overrides the config dirs.
 > It trades the isolation properties above for convenience.
 
-## Setup
+## Setup (Portainer)
 
-```bash
-# 1. Password secret (not committed)
-install -d -m 700 /opt/claude-dev/secrets
-openssl rand -base64 32 > /opt/claude-dev/secrets/paseo_password
-chmod 600 /opt/claude-dev/secrets/paseo_password
+The image is **built by CI, not by the stack**. Portainer does not reliably build images from
+a compose file — its docs state that "building images via docker-compose ... is not fully
+implemented" — so there is deliberately no `build:` directive here.
+`.github/workflows/docker-image.yml` publishes `ghcr.io/thepharmer/paseo-agents`.
 
-# 2. Build + start
-docker compose -f docker/paseo/compose.yaml up -d --build
+1. **Wait for CI.** Pushing to `main` or `paseo-test` builds the image. Branch builds are
+   tagged with the branch name; only `main` moves `:latest`.
+2. **Create the stack** in Portainer from this repo, compose path `docker/paseo/compose.yaml`.
+3. **Set the stack environment variables:**
 
-# 3. Authenticate each agent (once; persists on paseo-home)
-docker exec -it --user paseo paseo claude
-docker exec -it --user paseo paseo codex
-docker exec -it --user paseo paseo pi
+   | Variable | Required | Notes |
+   |---|---|---|
+   | `PASEO_PASSWORD` | yes | High-entropy. Deploy fails immediately if unset. |
+   | `PASEO_IMAGE_TAG` | no | Defaults to `latest`. Set to `paseo-test` to run the branch build. |
 
-# 4. Confirm Paseo sees them
-docker exec -u paseo paseo paseo ls
-```
+4. **Deploy**, then authenticate each agent once (persists on the `paseo-home` volume):
 
-Then add a Cloudflare public hostname `paseo.example.com` → the host's `:6767` (same origin
-host as the existing `cc.example.com` → `:3001` route), duplicate the Access policy, and
-allow WebSockets.
+   ```bash
+   docker exec -it --user paseo paseo claude
+   docker exec -it --user paseo paseo codex
+   docker exec -it --user paseo paseo pi
+   docker exec -u paseo paseo paseo ls      # confirm Paseo sees all three
+   ```
+
+5. **Add the Cloudflare public hostname** `paseo.example.com` → the host's `:6767` (same
+   origin host as the existing `cc.example.com` → `:3001` route), duplicate the Access
+   policy, and allow WebSockets.
+
+To upgrade later, re-pull the stack in Portainer after CI publishes a new tag — the same
+rebuild-to-upgrade model `claude-code` uses.
 
 ## Why the custom entrypoint
 
-Paseo reads only `PASEO_PASSWORD` — **not** `PASEO_PASSWORD_FILE`. A Compose secret arrives as
-a *file*, so without a bridge the secret is silently ignored and the daemon starts
-**unauthenticated**, logging only a warning while still serving. `entrypoint.sh` reads the
-file, exports `PASEO_PASSWORD`, unsets the pointer, and **fails closed** if no password is
-available. It then execs the stock entrypoint unmodified, with `tini` still PID 1.
+Paseo reads only `PASEO_PASSWORD`, and if it is missing the daemon starts **unauthenticated**,
+logging a warning while still serving. Since this daemon is reachable over a public tunnel,
+`entrypoint.sh` treats that as fatal and **fails closed** instead. It also bridges
+`PASEO_PASSWORD_FILE` → `PASEO_PASSWORD` for deployments that mount the password as a file
+rather than passing an env var (Paseo itself does not read the `_FILE` form). It then execs
+the stock entrypoint unmodified, with `tini` still PID 1.
+
+With the Portainer env-var approach the bridge is inert and the fail-closed check is what
+matters — but it means switching to a mounted secret later needs no image change.
 
 ## Troubleshooting
 
