@@ -54,7 +54,7 @@ Record the outcome here so the branch history explains itself:
 - **Deal-breaker found (if any):**
 - **Date:**
 
-If T3 Code wins, `t3code-test` needs work before merge: the image should stop depending on a
+If T3 Code wins, `t3-paseo-test` needs work before merge: the image should stop depending on a
 branch tag of `paseo-agents`, and the shared-credential model should be reconsidered — it is
 right for an evaluation, but a permanent deployment probably wants the isolation the paseo
 stack was designed around.

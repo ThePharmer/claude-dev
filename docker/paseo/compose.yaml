@@ -12,7 +12,7 @@
 services:
   paseo:
     image: ghcr.io/thepharmer/paseo-agents:${PASEO_IMAGE_TAG:-latest}
-    # PASEO_IMAGE_TAG   optional; defaults to 'latest'. Set to 'paseo-test' to run the
+    # PASEO_IMAGE_TAG   optional; defaults to 'latest'. Set to 't3-paseo-test' to run the
     # branch build before merging to main.
     container_name: paseo
     restart: unless-stopped

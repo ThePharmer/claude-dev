@@ -2,7 +2,10 @@ name: Build and Push Images
 
 on:
   push:
-    branches: [main, paseo-test, t3code-test]
+    # t3-paseo-test is the single working branch: it fuses what were paseo-test and
+    # t3code-test, which had drifted on docker/paseo/Dockerfile (two different Pi pins).
+    # Those two are frozen as history and deliberately no longer build.
+    branches: [main, t3-paseo-test]
     tags: ["v*"]
   workflow_dispatch:
     inputs:

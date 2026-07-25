@@ -17,7 +17,7 @@
 # The base tag is an ARG because CI must build this AFTER paseo-agents on the same commit
 # - see .github/workflows/docker-image.yml, which passes the commit SHA tag so the image
 # is pinned to the exact paseo-agents build from this commit rather than a moving tag.
-ARG PASEO_AGENTS_TAG=paseo-test
+ARG PASEO_AGENTS_TAG=t3-paseo-test
 FROM ghcr.io/thepharmer/paseo-agents:${PASEO_AGENTS_TAG}
 
 # Pinned like every other agent in this repo. Deliberately NOT locked down further:

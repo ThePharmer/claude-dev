@@ -76,14 +76,14 @@ The image is **built by CI, not by the stack**, for the same reason the paseo st
    will refuse to start if `paseo_paseo-home` does not exist. That is intentional: the
    alternative is Docker silently creating an empty volume and T3 Code coming up with no
    agent logins, which looks like an auth bug rather than a wiring mistake.
-2. **Wait for CI.** Pushing to `t3code-test` builds and tags the image `:t3code-test`.
+2. **Wait for CI.** Pushing to `t3-paseo-test` builds and tags the image `:t3-paseo-test`.
    Only `main` moves `:latest`, and this branch is not meant to be merged unless T3 Code wins.
 3. **Create the stack** in Portainer from this repo, compose path `docker/t3code/compose.yaml`.
 4. **Set the stack environment variables:**
 
    | Variable | Required | Notes |
    |---|---|---|
-   | `T3CODE_IMAGE_TAG` | no | Defaults to `t3code-test`. |
+   | `T3CODE_IMAGE_TAG` | no | Defaults to `t3-paseo-test`. |
 
    No password variable, by design — see Authentication above.
 

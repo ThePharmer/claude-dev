@@ -10,7 +10,7 @@
 
 services:
   t3code:
-    image: ghcr.io/thepharmer/t3code-agents:${T3CODE_IMAGE_TAG:-t3code-test}
+    image: ghcr.io/thepharmer/t3code-agents:${T3CODE_IMAGE_TAG:-t3-paseo-test}
     # T3CODE_IMAGE_TAG   optional; defaults to the branch build. There is no ':latest'
     # until this is merged to main - which is the point of an evaluation stack.
     container_name: t3code

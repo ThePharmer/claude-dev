@@ -53,7 +53,7 @@ a compose file — its docs state that "building images via docker-compose ... i
 implemented" — so there is deliberately no `build:` directive here.
 `.github/workflows/docker-image.yml` publishes `ghcr.io/thepharmer/paseo-agents`.
 
-1. **Wait for CI.** Pushing to `main` or `paseo-test` builds the image. Branch builds are
+1. **Wait for CI.** Pushing to `main` or `t3-paseo-test` builds the image. Branch builds are
    tagged with the branch name; only `main` moves `:latest`.
 2. **Create the stack** in Portainer from this repo, compose path `docker/paseo/compose.yaml`.
 3. **Set the stack environment variables:**
@@ -61,7 +61,7 @@ implemented" — so there is deliberately no `build:` directive here.
    | Variable | Required | Notes |
    |---|---|---|
    | `PASEO_PASSWORD` | yes | High-entropy. Deploy fails immediately if unset. |
-   | `PASEO_IMAGE_TAG` | no | Defaults to `latest`. Set to `paseo-test` to run the branch build. |
+   | `PASEO_IMAGE_TAG` | no | Defaults to `latest`. Set to `t3-paseo-test` to run the branch build. |
 
 4. **Deploy**, then authenticate each agent once (persists on the `paseo-home` volume):
 
