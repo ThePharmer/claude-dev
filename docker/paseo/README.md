@@ -67,8 +67,12 @@ implemented" — so there is deliberately no `build:` directive here.
    docker exec -it --user paseo paseo claude
    docker exec -it --user paseo paseo codex
    docker exec -it --user paseo paseo pi
+   docker exec -it --user paseo paseo gh auth login   # so agents can open PRs
    docker exec -u paseo paseo paseo ls      # confirm Paseo sees all three
    ```
+
+   `gh` writes to `$XDG_CONFIG_HOME/gh` (`/home/paseo/.config/gh`), which is on the
+   volume, so the login survives container recreation like the agent logins do.
 
 5. **Add the Cloudflare public hostname** `paseo.example.com` → the host's `:6767` (same
    origin host as the existing `cc.example.com` → `:3001` route), duplicate the Access

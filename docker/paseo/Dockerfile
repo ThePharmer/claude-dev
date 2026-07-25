@@ -67,6 +67,24 @@ RUN npm install -g \
 # runtime with no build-time signal. Fail the build instead.
 RUN node -e 'const v=process.versions.node.split(".").map(Number); if (v[0]<22 || (v[0]===22 && v[1]<19)) { console.error("FATAL: base Node "+process.versions.node+" is below pi >=22.19.0"); process.exit(1); } console.log("Node "+process.versions.node+" OK for claude/codex/pi")'
 
+# GitHub CLI from GitHub's official apt repo - bookworm's own gh package is years stale
+# (2.23.x). Same block as claude-code/Dockerfile, so both surfaces get the same gh. The
+# agents shell out to it for PR/issue work, so it belongs in the image rather than being
+# hand-installed into a container that gets replaced on every image bump.
+# No GH_CONFIG_DIR is needed here: the base sets XDG_CONFIG_HOME=/home/paseo/.config, so
+# gh's default config path already lands on the paseo-home volume and 'gh auth login'
+# survives recreation - unlike claude-dev, where /claude is the volume instead.
+RUN mkdir -p -m 755 /etc/apt/keyrings \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+         -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+         > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/* \
+    && gh --version
+
 # Password-secret bridge. Paseo reads only PASEO_PASSWORD; a Compose secret arrives as a
 # FILE, so without this the secret is silently ignored and a tunnel-reachable daemon comes
 # up UNAUTHENTICATED. Sits between tini and the stock entrypoint, which is left untouched.

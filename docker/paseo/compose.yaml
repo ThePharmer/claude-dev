@@ -6,6 +6,7 @@
 #     docker exec -it --user paseo paseo claude
 #     docker exec -it --user paseo paseo codex
 #     docker exec -it --user paseo paseo pi
+#     docker exec -it --user paseo paseo gh auth login   # so agents can open PRs
 #     docker exec -u paseo paseo paseo ls      # confirm Paseo sees all three
 
 services:
