@@ -93,7 +93,8 @@ services:
       start_period: 30s
 
 volumes:
+  # Shared by both services: Paseo daemon state, T3 Code state, and ALL agent logins.
+  # KEEP THE STACK NAMED 'paseo' - Compose namespaces volumes by project, so this resolves
+  # to 'paseo_paseo-home' only under that name. Renaming silently creates an empty volume
+  # instead of failing, losing every login and the daemon keypair.
   paseo-home:
-  # Shared by both services. Holds Paseo daemon state, T3 Code state, and ALL agent
-  # logins. Resolves to 'paseo_paseo-home' as long as the stack is named 'paseo' - see
-  # the warning at the top before renaming anything.
