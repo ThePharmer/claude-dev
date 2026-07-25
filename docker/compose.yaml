@@ -49,6 +49,24 @@ services:
       # NOTE: this must match the Host header Paseo actually RECEIVES. If the cloudflared
       # connector sets httpHostHeader it rewrites that header and requests 403 even though
       # the route is correct - see README troubleshooting.
+      #
+      # Disable the relay. It is a SECOND ingress that the Cloudflare tunnel never sees, and
+      # on that path the daemon does not check PASEO_PASSWORD or PASEO_HOSTNAMES - the E2EE
+      # handshake is the only authenticator (websocket-server.ts attachExternalSocket calls
+      # attachSocket directly, skipping attachAuthenticatedSocket; sessions get scopes ["*"]).
+      #
+      # That handshake is bypassable as of Paseo 0.2.1. crypto.ts importPublicKey validates
+      # length only, and deriveSharedKey does not reject an all-zero scalarmult result, which
+      # tweetnacl (unlike libsodium) permits. An all-zero client key therefore yields the
+      # constant shared key 351f86fa...bd7f91e for ANY daemon secret - verified locally
+      # against tweetnacl 1.0.3. Anyone who knows the daemon's serverId (a cleartext relay
+      # query param, written to relay logs) gets a full-authority session: a terminal as the
+      # daemon user and any file it can read, with no pairing link and no password.
+      #
+      # Default is true - this must be set explicitly. Re-enable only once upstream rejects
+      # low-order points, and understand that even then the pairing link is an unrevocable,
+      # non-expiring bearer credential with no IdP check on that path.
+      PASEO_RELAY_ENABLED: "false"
     healthcheck:
       test:
         - CMD

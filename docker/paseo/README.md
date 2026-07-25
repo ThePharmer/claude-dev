@@ -113,6 +113,35 @@ the stock entrypoint unmodified, with `tini` still PID 1.
 With the Portainer env-var approach the bridge is inert and the fail-closed check is what
 matters — but it means switching to a mounted secret later needs no image change.
 
+## Relay: disabled, deliberately
+
+`PASEO_RELAY_ENABLED: "false"` is set in `../compose.yaml`. The default is `true`, so this
+has to be explicit.
+
+The relay is a second ingress: the daemon holds an **outbound** connection to Paseo's
+servers, and clients meet it there. Cloudflare never sees that path, so Access does not
+gate it — and on it, the daemon checks **neither** `PASEO_PASSWORD` **nor** `PASEO_HOSTNAMES`.
+`attachExternalSocket` calls `attachSocket` directly, skipping `attachAuthenticatedSocket`,
+and the resulting session gets `scopes: ["*"]` — a terminal as the daemon user and any file
+that user can read. The E2EE handshake is the only authenticator.
+
+As of Paseo 0.2.1 that handshake is bypassable. `crypto.ts` validates public-key *length*
+only, and `deriveSharedKey` does not reject an all-zero scalarmult result — which tweetnacl
+permits and libsodium does not. An all-zero client key yields the constant shared key
+`351f86fa…bd7f91e` for any daemon secret (verified locally against tweetnacl 1.0.3). Anyone
+holding the daemon's `serverId` — a cleartext relay query parameter that is written to relay
+logs — can open a fully privileged session without the pairing link and without the password.
+
+**Consequence:** the Android/iOS app cannot reach this daemon. The app cannot send custom
+headers (React Native's WebSocket can, but Paseo's `defaultWebSocketFactory` drops them), so
+it cannot satisfy Cloudflare Access with a service token either. Browser access over the
+tunnel is unaffected.
+
+Before re-enabling, confirm upstream rejects low-order points, and note that even fixed, a
+pairing link is a non-expiring, individually-unrevocable bearer credential with no IdP check
+on that path. The alternative that keeps mobile access is a Cloudflare private-network route
+plus WARP on the phone, which puts the app on an authenticated path instead of a public one.
+
 ## Troubleshooting
 
 **403 through the tunnel, but `http://<host-ip>:6767` works.** `PASEO_HOSTNAMES` is matched
