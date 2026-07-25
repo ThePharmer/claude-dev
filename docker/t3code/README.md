@@ -10,7 +10,8 @@ to make the comparison fair rather than to be a permanent deployment — see
 
 - **`Dockerfile`** — `ghcr.io/thepharmer/paseo-agents` plus `t3`, pinned.
 - **`entrypoint.sh`** — refuses to start on an unreachable bind; see below.
-- **`compose.yaml`** — the stack itself.
+- **`../compose.yaml`** — the shared stack, one level up. T3 Code is a service inside the
+  `paseo` stack, not a stack of its own; this directory is only the build context.
 
 ## Why it is built on paseo-agents
 
@@ -79,7 +80,7 @@ The image is **built by CI, not by the stack**, for the same reason the paseo im
 
 1. **Wait for CI.** Pushing to `t3-paseo-test` builds and tags the image `:t3-paseo-test`.
    Only `main` moves `:latest`, and this branch is not meant to be merged unless T3 Code wins.
-2. **Deploy the `paseo` stack** (compose path `docker/paseo/compose.yaml`) — it brings up
+2. **Deploy the `paseo` stack** (compose path `docker/compose.yaml`) — it brings up
    both `paseo` and `t3code`. Keep the stack named `paseo`: Compose namespaces volumes by
    project, so renaming it creates an empty `paseo-home` and both services come up with no
    agent logins.
@@ -167,7 +168,7 @@ check what `/` actually returns.
 ## Teardown
 
 ```bash
-docker compose -f docker/paseo/compose.yaml stop t3code
+docker compose -f docker/compose.yaml stop t3code
 ```
 
 **Never with `-v`.** The volume belongs to the paseo stack; `-v` on a shared external volume

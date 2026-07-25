@@ -16,7 +16,8 @@ Codex and Pi baked in, rather than something that talks to the `claude-code` con
 - **`entrypoint.sh`** — password-secret bridge; fails closed (see below).
 - **`bashrc.sh`** — interactive-shell defaults for the web terminals; installed to
   `/etc/paseo-bashrc.sh` rather than a home directory (see troubleshooting).
-- **`compose.yaml`** — the stack itself: both the `paseo` and `t3code` services.
+- **`../compose.yaml`** — the stack itself, one level up: it defines both the `paseo` and
+  `t3code` services, so it belongs to neither image's build context.
 
 ## Credentials: ISOLATED (no share with claude-dev)
 
@@ -65,7 +66,7 @@ Drop the `t3code` service once the evaluation is settled.
 
 1. **Wait for CI.** Pushing to `main` or `t3-paseo-test` builds both images. Branch builds
    are tagged with the branch name; only `main` moves `:latest`.
-2. **Create the stack** in Portainer from this repo, compose path `docker/paseo/compose.yaml`.
+2. **Create the stack** in Portainer from this repo, compose path `docker/compose.yaml`.
    **Name it `paseo`.** Compose namespaces volumes by project, so the volume resolves to
    `paseo_paseo-home` only under that name — renaming the stack silently creates an empty
    volume and both services come up with no agent logins, no daemon keypair, and no

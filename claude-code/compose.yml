@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
 
 # Paseo is NOT a service here - it runs as its own standalone stack with its own
-# credentials, isolated from claude-config. See docker/paseo/compose.yaml.
+# credentials, isolated from claude-config. See docker/compose.yaml.
 
 volumes:
   claude-config:
