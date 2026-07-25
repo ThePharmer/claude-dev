@@ -15,6 +15,8 @@ settled — they were established while building the stacks, so don't re-litigat
 |---|---|---|
 | Maturity | Stable enough to pin and deploy | `0.0.x`, published the day of this eval; README says "expect bugs", not accepting contributions |
 | Auth model | Single shared password (`PASEO_PASSWORD`) | Per-client pairing tokens + scoped bearer sessions, derived from bind host |
+| Credential revocation | **None.** No per-device revocation; the only remedy for a leaked pairing link is deleting `daemon-keypair.json` + `server-id`, which un-pairs every device | `t3 auth pairing revoke` — per-token, plus `list` without revealing secrets |
+| Second ingress | **Relay, on by default.** Bypasses the tunnel entirely; daemon checks neither `PASEO_PASSWORD` nor `PASEO_HOSTNAMES` on it, and the E2EE handshake is bypassable in 0.2.1 (all-zero key → constant shared key). Disabled here via `PASEO_RELAY_ENABLED=false` | T3 Connect relay and Tailscale serve — both **off** by default in this image |
 | Fails open? | **Yes** — starts unauthenticated if the password is missing; needed a custom fail-closed entrypoint | No — non-loopback bind flips it to `remote-reachable` (read from bundle, not verified live) |
 | Host header allowlist | `PASEO_HOSTNAMES`, and it broke on `httpHostHeader` rewriting | None observed |
 | Provider coverage | claude, codex, pi (anything on `PATH`) | claude, codex, cursor-agent, opencode, grok — **no pi** |

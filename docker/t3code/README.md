@@ -1,7 +1,7 @@
 # T3 Code — evaluation stack
 
-[T3 Code](https://github.com/pingdotgg/t3code) daemon + web UI, running as its **own Compose
-stack** next to `paseo`, reached through the Cloudflare tunnel at `t3.example.com`.
+[T3 Code](https://github.com/pingdotgg/t3code) daemon + web UI, running as a **service inside
+the `paseo` stack**, reached through the Cloudflare tunnel at `t3.example.com`.
 
 This exists to answer one question: **Paseo or T3 Code?** Both are minimal web GUIs that
 orchestrate agent CLIs as local subprocesses; neither ships an agent. So this stack is built
@@ -95,10 +95,18 @@ The image is **built by CI, not by the stack**, for the same reason the paseo im
 5. **Deploy**, then issue a pairing token and open the UI:
 
    ```bash
-   docker exec -it t3code t3 auth pairing issue     # one-time client pairing token
+   docker exec -it t3code t3 auth pairing create    # one-time client pairing token
    docker exec -it t3code t3 auth pairing list      # active tokens, secrets not revealed
-   docker exec -it t3code t3 auth session issue     # scoped bearer token, for API clients
+   docker exec -it t3code t3 auth pairing revoke    # revoke one token
    ```
+
+   The subcommand is `create`, not `issue` (confirmed against t3 0.0.28 — `issue` errors
+   with "Unknown subcommand"). No `-u` flag is needed: the image sets `USER paseo`, unlike
+   the paseo image which starts as root and drops privileges in its entrypoint.
+
+   For scoped bearer tokens aimed at API clients there is a parallel `t3 auth session`
+   group (`list` and `revoke` are confirmed present in the bundle; the create verb is not
+   — run `t3 auth session --help` to confirm before relying on it).
 
    Agent logins are already on the volume from the paseo stack — there is no
    `claude`/`codex` login step here. Confirm with:
