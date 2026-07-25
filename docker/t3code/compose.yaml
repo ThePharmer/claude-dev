@@ -1,0 +1,59 @@
+#   T3 Code web UI, deployed as its own Portainer stack for a head-to-head evaluation
+#   against Paseo. See README.md.
+#
+#   As with the paseo stack there is deliberately no 'build:' directive - Portainer does
+#   not reliably build images from a stack. CI publishes the image to ghcr instead.
+#
+#   This stack SHARES the paseo stack's volume on purpose, so both UIs drive the same
+#   agent logins. That means the paseo stack must be deployed first (it owns the volume),
+#   and that tearing this stack down must never use '-v'.
+
+services:
+  t3code:
+    image: ghcr.io/thepharmer/t3code-agents:${T3CODE_IMAGE_TAG:-t3code-test}
+    # T3CODE_IMAGE_TAG   optional; defaults to the branch build. There is no ':latest'
+    # until this is merged to main - which is the point of an evaluation stack.
+    container_name: t3code
+    restart: unless-stopped
+    ports:
+      - "3773:3773"
+    volumes:
+      # The SAME volume the paseo stack uses - not a copy. Both containers read and write
+      # /home/paseo/.claude and /home/paseo/.codex. See README "Shared credentials".
+      - paseo-home:/home/paseo
+      - /srv:/srv
+    working_dir: /srv
+    environment:
+      TZ: America/Detroit
+      # Required. The entrypoint refuses to start without it, because T3 Code otherwise
+      # binds loopback inside the container and the published port goes nowhere.
+      T3CODE_HOST: 0.0.0.0
+      T3CODE_PORT: 3773
+      # T3 Code's own state, kept beside (not inside) Paseo's ~/.paseo on the shared volume.
+      T3CODE_HOME: /home/paseo/.t3code
+      # No PostHog, and no T3 Connect: the Cloudflare tunnel is the only ingress, so there
+      # is no reason for this container to fetch a cloudflared binary at runtime.
+      T3CODE_TELEMETRY_ENABLED: "false"
+    healthcheck:
+      # Any HTTP response below 500 means the server is up. Deliberately NOT requiring 200:
+      # once bound to a wildcard host T3 Code treats itself as remote-reachable and may
+      # answer an unauthenticated probe with 401/403, which is healthy, not broken.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3773/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  paseo-home:
+    # Portainer namespaces volumes by stack project, so the paseo stack's 'paseo-home'
+    # is really 'paseo_paseo-home' on the host (confirmed via 'docker volume ls').
+    # Declaring it external means Docker attaches the existing volume instead of creating
+    # an empty one - if this name is ever wrong, the stack comes up with NO agent logins
+    # rather than silently sharing the wrong state.
+    external: true
+    name: paseo_paseo-home

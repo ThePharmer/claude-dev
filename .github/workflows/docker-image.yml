@@ -3,8 +3,9 @@ name: Build and Push Images
 on:
   push:
     # paseo-test builds so the Paseo stack can be deployed and tested in Portainer before
-    # merging. Branch builds are tagged with the branch name, never ':latest' - see below.
-    branches: [main, paseo-test]
+    # merging; t3code-test does the same for the T3 Code evaluation stack. Branch builds
+    # are tagged with the branch name, never ':latest' - see below.
+    branches: [main, paseo-test, t3code-test]
   workflow_dispatch:  # Manual trigger
 
 jobs:
@@ -56,3 +57,57 @@ jobs:
           docker run --rm --entrypoint claude "$IMAGE" --version
           docker run --rm --entrypoint codex  "$IMAGE" --version
           docker run --rm --entrypoint pi     "$IMAGE" --version
+
+  # Separate job because t3code-agents is built FROM paseo-agents. In a single matrix the
+  # two would build concurrently and this one would pull a base tag that does not exist yet
+  # on a fresh branch. 'needs' orders them; passing the commit-SHA tag as the base pins
+  # this image to the exact paseo-agents build from the same commit rather than a moving
+  # branch tag, so a rebuild of an old commit reproduces the same image.
+  build-derived:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./docker/t3code
+          push: true
+          build-args: |
+            PASEO_AGENTS_TAG=${{ github.sha }}
+          tags: |
+            ghcr.io/thepharmer/t3code-agents:${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
+            ghcr.io/thepharmer/t3code-agents:${{ github.sha }}
+
+      # Overrides the entrypoint on purpose: this checks that t3 and the inherited agent
+      # CLIs are installed and runnable, not the server startup path (which would fail
+      # without T3CODE_HOST, by design).
+      - name: Smoke test t3code-agents
+        run: |
+          IMAGE=ghcr.io/thepharmer/t3code-agents:${{ github.sha }}
+          docker run --rm --entrypoint t3     "$IMAGE" --version
+          docker run --rm --entrypoint claude "$IMAGE" --version
+          docker run --rm --entrypoint codex  "$IMAGE" --version
+
+      # The entrypoint must refuse to start when T3CODE_HOST is unset or loopback -
+      # otherwise a misconfigured stack binds loopback and looks like a tunnel problem.
+      - name: Verify entrypoint fails closed on unreachable bind
+        run: |
+          IMAGE=ghcr.io/thepharmer/t3code-agents:${{ github.sha }}
+          if docker run --rm "$IMAGE"; then
+            echo "FATAL: entrypoint started with no T3CODE_HOST set"; exit 1
+          fi
+          if docker run --rm -e T3CODE_HOST=127.0.0.1 "$IMAGE"; then
+            echo "FATAL: entrypoint started with a loopback T3CODE_HOST"; exit 1
+          fi
+          echo "entrypoint refused both unreachable configurations"
