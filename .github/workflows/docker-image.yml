@@ -2,108 +2,304 @@ name: Build and Push Images
 
 on:
   push:
-    # paseo-test builds so the Paseo stack can be deployed and tested in Portainer before
-    # merging; t3code-test does the same for the T3 Code evaluation stack. Branch builds
-    # are tagged with the branch name, never ':latest' - see below.
     branches: [main, paseo-test, t3code-test]
-  workflow_dispatch:  # Manual trigger
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Extra semantic tag to publish (e.g. bwrap-fix)"
+        required: false
+        type: string
+      rebuild:
+        description: "Rebuild even if an identical image already exists"
+        type: boolean
+        default: false
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: thepharmer
 
 jobs:
-  build:
+  # ---------------------------------------------------------------------------
+  # Decides what to build and under which tags.
+  #
+  # Each image gets a CONTENT tag, ctx-<n>, derived from the git tree object of its build
+  # context - it changes if and only if the context's contents change. "Do we need to
+  # build?" is then answered by asking the registry whether that exact tag already exists,
+  # rather than by diffing against a previous commit. That is correct on a first build, a
+  # force-push, a re-run, and a branch cut, none of which a diff-based check handles well.
+  #
+  # t3code's content tag folds in paseo's, because it is built FROM paseo-agents: a change
+  # to the base must produce a new t3code image even when docker/t3code/ is untouched.
+  # ---------------------------------------------------------------------------
+  plan:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
-
-    strategy:
-      matrix:
-        include:
-          - context: ./claude-code
-            image: claude-dev
-          - context: ./docker/paseo
-            image: paseo-agents
-
+      packages: read
+    outputs:
+      tag_names: ${{ steps.tags.outputs.names }}
+      claude_dev_ctx: ${{ steps.ctx.outputs.claude_dev }}
+      paseo_ctx: ${{ steps.ctx.outputs.paseo }}
+      t3code_ctx: ${{ steps.ctx.outputs.t3code }}
+      build_claude_dev: ${{ steps.need.outputs.claude_dev }}
+      build_paseo: ${{ steps.need.outputs.paseo }}
+      build_t3code: ${{ steps.need.outputs.t3code }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # The moving tag is 'latest' on main and the branch name everywhere else. Without
-      # this, a push to any non-main branch would overwrite claude-dev:latest - which the
-      # production claude-code stack deploys from - with unreviewed branch content.
-      - uses: docker/build-push-action@v5
+      # 'git rev-parse HEAD:<dir>' is the tree object id of that directory - a content
+      # hash that git already maintains. No file walking or hashing needed.
+      - id: ctx
+        name: Compute content tags
+        run: |
+          set -euo pipefail
+          CLAUDE_DEV=$(git rev-parse "HEAD:claude-code" | cut -c1-12)
+          PASEO=$(git rev-parse "HEAD:docker/paseo" | cut -c1-12)
+          T3_TREE=$(git rev-parse "HEAD:docker/t3code" | cut -c1-12)
+          # Fold the base's content tag in, so a paseo change invalidates t3code too.
+          T3CODE=$(printf '%s%s' "$T3_TREE" "$PASEO" | sha256sum | cut -c1-12)
+          echo "claude_dev=$CLAUDE_DEV" >> "$GITHUB_OUTPUT"
+          echo "paseo=$PASEO"           >> "$GITHUB_OUTPUT"
+          echo "t3code=$T3CODE"         >> "$GITHUB_OUTPUT"
+          echo "content tags: claude-dev=$CLAUDE_DEV paseo=$PASEO t3code=$T3CODE"
+
+      # Moving tag is 'latest' only on main, otherwise the branch or git-tag name. Without
+      # that guard a push to any branch would overwrite claude-dev:latest, which the
+      # production claude-code stack deploys from.
+      - id: tags
+        name: Assemble tag list
+        run: |
+          set -euo pipefail
+          {
+            echo "names<<EOF"
+            if [ "${{ github.ref_type }}" = "tag" ]; then
+              echo "${{ github.ref_name }}"
+            elif [ "${{ github.ref_name }}" = "main" ]; then
+              echo "latest"
+            else
+              echo "${{ github.ref_name }}"
+            fi
+            echo "${{ github.sha }}"
+            echo "$(echo "${{ github.sha }}" | cut -c1-7)"
+            if [ -n "${{ inputs.tag }}" ]; then echo "${{ inputs.tag }}"; fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - id: need
+        name: Check which images already exist
+        run: |
+          set -euo pipefail
+          check() {  # $1=image  $2=ctx  -> "true" if a build is required
+            if [ "${{ inputs.rebuild }}" = "true" ]; then echo true; return; fi
+            if docker buildx imagetools inspect \
+                 "$REGISTRY/$OWNER/$1:ctx-$2" >/dev/null 2>&1; then
+              echo false
+            else
+              echo true
+            fi
+          }
+          for pair in "claude-dev:claude_dev:${{ steps.ctx.outputs.claude_dev }}" \
+                      "paseo-agents:paseo:${{ steps.ctx.outputs.paseo }}" \
+                      "t3code-agents:t3code:${{ steps.ctx.outputs.t3code }}"; do
+            IMG=${pair%%:*}; REST=${pair#*:}; KEY=${REST%%:*}; CTX=${REST#*:}
+            R=$(check "$IMG" "$CTX")
+            echo "$KEY=$R" >> "$GITHUB_OUTPUT"
+            echo "$IMG (ctx-$CTX): build=$R"
+          done
+
+  claude-dev:
+    needs: plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
-          context: ${{ matrix.context }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: t
+        name: Expand tags
+        env:
+          NAMES: ${{ needs.plan.outputs.tag_names }}
+          CTX: ${{ needs.plan.outputs.claude_dev_ctx }}
+        run: |
+          set -euo pipefail
+          {
+            echo "list<<EOF"
+            for n in $NAMES; do echo "$REGISTRY/$OWNER/claude-dev:$n"; done
+            echo "$REGISTRY/$OWNER/claude-dev:ctx-$CTX"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - if: needs.plan.outputs.build_claude_dev == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./claude-code
           push: true
-          tags: |
-            ghcr.io/thepharmer/${{ matrix.image }}:${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
-            ghcr.io/thepharmer/${{ matrix.image }}:${{ github.sha }}
+          tags: ${{ steps.t.outputs.list }}
+          cache-from: type=gha,scope=claude-dev
+          cache-to: type=gha,scope=claude-dev,mode=max
 
-      - name: Smoke test claude-code
-        if: matrix.image == 'claude-dev'
+      # Context unchanged: point the new tags at the existing manifest instead of
+      # rebuilding. No layers move, so this is seconds rather than minutes.
+      - if: needs.plan.outputs.build_claude_dev != 'true'
+        name: Retag existing image
+        env:
+          NAMES: ${{ needs.plan.outputs.tag_names }}
+          CTX: ${{ needs.plan.outputs.claude_dev_ctx }}
         run: |
-          docker run --rm --entrypoint claude ghcr.io/thepharmer/claude-dev:${{ github.sha }} --version
+          set -euo pipefail
+          ARGS=""
+          for n in $NAMES; do ARGS="$ARGS -t $REGISTRY/$OWNER/claude-dev:$n"; done
+          docker buildx imagetools create $ARGS "$REGISTRY/$OWNER/claude-dev:ctx-$CTX"
+          echo "reused ctx-$CTX (no rebuild)"
 
-      # Overrides the password-bridge entrypoint on purpose: this checks the agent CLIs
-      # are installed and runnable, not the daemon startup path.
-      - name: Smoke test paseo-agents
-        if: matrix.image == 'paseo-agents'
+      # Only meaningful on a real build - a reused image passed these when it was built.
+      - if: needs.plan.outputs.build_claude_dev == 'true'
+        name: Smoke test
         run: |
-          IMAGE=ghcr.io/thepharmer/paseo-agents:${{ github.sha }}
+          docker run --rm --entrypoint claude \
+            "$REGISTRY/$OWNER/claude-dev:ctx-${{ needs.plan.outputs.claude_dev_ctx }}" --version
+
+  paseo-agents:
+    needs: plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: t
+        name: Expand tags
+        env:
+          NAMES: ${{ needs.plan.outputs.tag_names }}
+          CTX: ${{ needs.plan.outputs.paseo_ctx }}
+        run: |
+          set -euo pipefail
+          {
+            echo "list<<EOF"
+            for n in $NAMES; do echo "$REGISTRY/$OWNER/paseo-agents:$n"; done
+            echo "$REGISTRY/$OWNER/paseo-agents:ctx-$CTX"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - if: needs.plan.outputs.build_paseo == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./docker/paseo
+          push: true
+          tags: ${{ steps.t.outputs.list }}
+          cache-from: type=gha,scope=paseo-agents
+          cache-to: type=gha,scope=paseo-agents,mode=max
+
+      - if: needs.plan.outputs.build_paseo != 'true'
+        name: Retag existing image
+        env:
+          NAMES: ${{ needs.plan.outputs.tag_names }}
+          CTX: ${{ needs.plan.outputs.paseo_ctx }}
+        run: |
+          set -euo pipefail
+          ARGS=""
+          for n in $NAMES; do ARGS="$ARGS -t $REGISTRY/$OWNER/paseo-agents:$n"; done
+          docker buildx imagetools create $ARGS "$REGISTRY/$OWNER/paseo-agents:ctx-$CTX"
+          echo "reused ctx-$CTX (no rebuild)"
+
+      - if: needs.plan.outputs.build_paseo == 'true'
+        name: Smoke test
+        run: |
+          IMAGE="$REGISTRY/$OWNER/paseo-agents:ctx-${{ needs.plan.outputs.paseo_ctx }}"
           docker run --rm --entrypoint claude "$IMAGE" --version
           docker run --rm --entrypoint codex  "$IMAGE" --version
           docker run --rm --entrypoint pi     "$IMAGE" --version
 
-  # Separate job because t3code-agents is built FROM paseo-agents. In a single matrix the
-  # two would build concurrently and this one would pull a base tag that does not exist yet
-  # on a fresh branch. 'needs' orders them; passing the commit-SHA tag as the base pins
-  # this image to the exact paseo-agents build from the same commit rather than a moving
-  # branch tag, so a rebuild of an old commit reproduces the same image.
-  build-derived:
+  # Built FROM paseo-agents, so it waits for that job and pins the base by CONTENT tag.
+  # That tag is stable across commits that don't touch docker/paseo, so this stays
+  # deterministic even when the base build was skipped.
+  t3code-agents:
+    needs: [plan, paseo-agents]
     runs-on: ubuntu-latest
-    needs: build
     permissions:
       contents: read
       packages: write
-
     steps:
       - uses: actions/checkout@v4
-
+      - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v5
+      - id: t
+        name: Expand tags
+        env:
+          NAMES: ${{ needs.plan.outputs.tag_names }}
+          CTX: ${{ needs.plan.outputs.t3code_ctx }}
+        run: |
+          set -euo pipefail
+          {
+            echo "list<<EOF"
+            for n in $NAMES; do echo "$REGISTRY/$OWNER/t3code-agents:$n"; done
+            echo "$REGISTRY/$OWNER/t3code-agents:ctx-$CTX"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - if: needs.plan.outputs.build_t3code == 'true'
+        uses: docker/build-push-action@v5
         with:
           context: ./docker/t3code
           push: true
           build-args: |
-            PASEO_AGENTS_TAG=${{ github.sha }}
-          tags: |
-            ghcr.io/thepharmer/t3code-agents:${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
-            ghcr.io/thepharmer/t3code-agents:${{ github.sha }}
+            PASEO_AGENTS_TAG=ctx-${{ needs.plan.outputs.paseo_ctx }}
+          tags: ${{ steps.t.outputs.list }}
+          cache-from: type=gha,scope=t3code-agents
+          cache-to: type=gha,scope=t3code-agents,mode=max
 
-      # Overrides the entrypoint on purpose: this checks that t3 and the inherited agent
-      # CLIs are installed and runnable, not the server startup path (which would fail
-      # without T3CODE_HOST, by design).
-      - name: Smoke test t3code-agents
+      - if: needs.plan.outputs.build_t3code != 'true'
+        name: Retag existing image
+        env:
+          NAMES: ${{ needs.plan.outputs.tag_names }}
+          CTX: ${{ needs.plan.outputs.t3code_ctx }}
         run: |
-          IMAGE=ghcr.io/thepharmer/t3code-agents:${{ github.sha }}
+          set -euo pipefail
+          ARGS=""
+          for n in $NAMES; do ARGS="$ARGS -t $REGISTRY/$OWNER/t3code-agents:$n"; done
+          docker buildx imagetools create $ARGS "$REGISTRY/$OWNER/t3code-agents:ctx-$CTX"
+          echo "reused ctx-$CTX (no rebuild)"
+
+      - if: needs.plan.outputs.build_t3code == 'true'
+        name: Smoke test
+        run: |
+          IMAGE="$REGISTRY/$OWNER/t3code-agents:ctx-${{ needs.plan.outputs.t3code_ctx }}"
           docker run --rm --entrypoint t3     "$IMAGE" --version
           docker run --rm --entrypoint claude "$IMAGE" --version
           docker run --rm --entrypoint codex  "$IMAGE" --version
 
       # The entrypoint must refuse to start when T3CODE_HOST is unset or loopback -
       # otherwise a misconfigured stack binds loopback and looks like a tunnel problem.
-      - name: Verify entrypoint fails closed on unreachable bind
+      - if: needs.plan.outputs.build_t3code == 'true'
+        name: Verify entrypoint fails closed on unreachable bind
         run: |
-          IMAGE=ghcr.io/thepharmer/t3code-agents:${{ github.sha }}
+          IMAGE="$REGISTRY/$OWNER/t3code-agents:ctx-${{ needs.plan.outputs.t3code_ctx }}"
           if docker run --rm "$IMAGE"; then
             echo "FATAL: entrypoint started with no T3CODE_HOST set"; exit 1
           fi
