@@ -47,10 +47,16 @@ services:
       PASEO_PASSWORD: ${PASEO_PASSWORD:?PASEO_PASSWORD must be set as an environment variable}
       PASEO_HOSTNAMES: ${PASEO_HOSTNAMES}
       # The daemon defaults to trusting only loopback, so it discards X-Forwarded-Proto
-      # from cloudflared - which reaches it across the docker bridge, not 127.0.0.1. It
-      # then believes it is serving plain HTTP and hands the web UI a ws:// URL, which
-      # the browser flags as mixed content on an https page. Trusting the bridge range
-      # lets it see the request as https and emit wss://.
+      # from cloudflared, which reaches it across the docker bridge rather than 127.0.0.1.
+      # It therefore sees req.protocol as "http" and injects useTls:false into the web UI's
+      # initial connection hint (server/web-ui.js).
+      #
+      # This is correctness hygiene, NOT a fix for the UI failing to auto-connect. That has
+      # a separate upstream cause: the hint carries the Host header verbatim, browsers omit
+      # the default port, and @getpaseo/protocol parseHostPort requires an explicit port
+      # (/^(.+):(\d{1,5})$/). The hint is discarded before useTls is ever read, and the
+      # client falls back to a hard-coded localhost:6767 probe. Setting this does not
+      # change that; only an upstream fix will.
       PASEO_TRUSTED_PROXIES: loopback,172.16.0.0/12
       PASEO_RELAY_ENABLED: "false"
       # Disable the relay. It is a SECOND ingress that the Cloudflare tunnel never sees, and
