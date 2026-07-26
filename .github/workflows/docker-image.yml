@@ -223,3 +223,5 @@ jobs:
           docker run --rm --entrypoint claude "$IMAGE" --version
           docker run --rm --entrypoint codex  "$IMAGE" --version
           docker run --rm --entrypoint pi     "$IMAGE" --version
+          docker run --rm --entrypoint python3 "$IMAGE" --version
+          docker run --rm --entrypoint uv     "$IMAGE" --version

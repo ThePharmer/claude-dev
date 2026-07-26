@@ -21,6 +21,13 @@
 #
 # TODO(reproducibility): pin by digest once verifiable from a host with registry access:
 #   FROM ghcr.io/getpaseo/paseo:0.2.1@sha256:<digest>
+
+# uv, pulled from Astral's distroless image rather than the install script so the version
+# is a pin instead of whatever the script resolves at build time. A named stage is what
+# makes the ARG usable - `COPY --from=<image>` does not expand build args reliably.
+ARG UV_VERSION="0.11.32"
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uvbin
+
 FROM ghcr.io/getpaseo/paseo:0.2.1
 
 # Agent CLI pins - identical to the pins in claude-code/Dockerfile so both surfaces run
@@ -30,6 +37,11 @@ FROM ghcr.io/getpaseo/paseo:0.2.1
 ARG CLAUDE_CODE_VERSION="2.1.219"
 ARG CODEX_VERSION="0.145.0"
 ARG PI_VERSION="0.82.1"
+
+# Python pin. 3.13 rather than 3.14 for the wider wheel coverage; bump when the packages
+# agents actually reach for have caught up. (UV_VERSION is declared above the first FROM,
+# because that is the only scope where the uvbin stage can see it.)
+ARG PYTHON_VERSION="3.13"
 
 # The base leaves User unset and drops privileges in its own entrypoint, so install as
 # root and deliberately do NOT set USER - overriding it would break that drop.
@@ -84,6 +96,48 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
     && apt-get install -y --no-install-recommends gh bash-completion \
     && rm -rf /var/lib/apt/lists/* \
     && gh --version
+
+# ---------------------------------------------------------------------------
+# Python, via uv. The base ships no interpreter at all, so agents hit "python3: not found"
+# on anything from a one-off script to a repo's own tooling.
+#
+# EVERYTHING baked here must land OUTSIDE /home/paseo. That path is a named volume, so a
+# build-time write to it is masked the moment an existing volume mounts over it: the build
+# passes, the image looks correct, and python3 is missing at runtime. uv's defaults walk
+# straight into that trap - it installs interpreters under $XDG_DATA_HOME and symlinks
+# under $XDG_BIN_HOME, both of which the base points at /home/paseo. Verified: a plain
+# `uv python install` here warns that `/home/paseo/.local/bin` is where it put the links.
+# Same hazard, and same fix, as /etc/paseo-bashrc.sh further down.
+COPY --from=uvbin /uv /uvx /usr/local/bin/
+
+# UV_PYTHON_INSTALL_DIR is set INLINE, not as ENV, and deliberately so. Baking it into the
+# image would point runtime uv at a root-owned path, so an agent's own `uv python install`
+# would fail on permissions. Left unset at runtime, uv falls back to ~/.local/share/uv on
+# the volume - which is writable, persists across recreation, and is the rootless escape
+# hatch for extra interpreters. The baked one stays reachable either way via the symlinks
+# below, since uv discovers interpreters on PATH.
+#
+# --managed-python so this cannot silently "succeed" by finding a system interpreter that
+# does not exist here. --default is avoided on purpose: it creates these same symlinks but
+# is still flagged experimental ("may change without warning"), and ln is not.
+RUN export UV_PYTHON_INSTALL_DIR=/usr/local/share/uv/python \
+    && uv python install --managed-python "${PYTHON_VERSION}" \
+    && PY="$(uv python find --managed-python "${PYTHON_VERSION}")" \
+    && test -x "$PY" \
+    && ln -sf "$PY" /usr/local/bin/python3 \
+    && ln -sf "$PY" /usr/local/bin/python \
+    && case "$(python3 --version)" in "Python ${PYTHON_VERSION}."*) ;; \
+         *) echo "FATAL: python3 is $(python3 --version), expected ${PYTHON_VERSION}.x"; exit 1 ;; esac \
+    && python3 -c 'import sys, ssl, sqlite3, zlib; print("python OK:", sys.version.split()[0])' \
+    && uv --version
+
+# Guard the masking failure mode itself. If a future edit lets any of the above resolve
+# back under /home/paseo, the volume hides it at runtime with no other signal - so fail
+# the build here instead of shipping an image that loses python on deploy.
+RUN case "$(readlink -f /usr/local/bin/python3)" in \
+      /home/paseo/*) echo "FATAL: python3 resolves into /home/paseo, which the named volume masks at runtime"; exit 1 ;; \
+    esac \
+    && echo "python3 -> $(readlink -f /usr/local/bin/python3) (outside the volume)"
 
 # Restore Claude thinking/reasoning in the Paseo timeline.
 #

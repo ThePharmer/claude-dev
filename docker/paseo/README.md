@@ -12,7 +12,7 @@ runs them as **local subprocesses**. That's why this is a child image with Claud
 Codex and Pi baked in, rather than something that talks to the `claude-code` container.
 
 - **`Dockerfile`** — `ghcr.io/getpaseo/paseo:0.2.1` plus the three agent CLIs, pinned to the
-  same versions as `claude-code/Dockerfile`.
+  same versions as `claude-code/Dockerfile`, plus `uv` and a managed Python (see below).
 - **`entrypoint.sh`** — password-secret bridge; fails closed (see below).
 - **`bashrc.sh`** — interactive-shell defaults for the web terminals; installed to
   `/etc/paseo-bashrc.sh` rather than a home directory (see troubleshooting).
@@ -95,6 +95,29 @@ implemented" — so there is deliberately no `build:` directive here.
 To upgrade later, re-pull the stack in Portainer after CI publishes a new tag — the same
 rebuild-to-upgrade model `claude-code` uses.
 
+## Python and uv
+
+The base image ships no interpreter, so the Dockerfile installs `uv` plus a managed CPython
+(`PYTHON_VERSION`, currently 3.13) and symlinks `python3`/`python` into `/usr/local/bin`.
+
+The thing to know before editing that block: **anything baked under `/home/paseo` is
+invisible at runtime.** That path is a named volume, so a build-time write there is masked
+the instant an existing volume mounts over it — the build passes, the image looks right, and
+the file is simply gone on deploy. uv's defaults land squarely in that trap (interpreters
+under `$XDG_DATA_HOME`, symlinks under `$XDG_BIN_HOME`, both pointed at `/home/paseo` by the
+base). Hence the system install dir, and a build-time assert that fails if `python3` ever
+resolves back under `/home/paseo`.
+
+`UV_PYTHON_INSTALL_DIR` is deliberately **not** baked into the image env. Left unset at
+runtime, an agent's own `uv python install` or `uv pip install` writes to `~/.local` on the
+volume — no root needed, and it survives container recreation.
+
+That persistence cuts both ways. The volume outlives image bumps too, so a package installed
+at runtime sticks around indefinitely and no rebuild will ever reveal that the image doesn't
+declare it. Only `down -v`, `docker volume rm`, or a stack rename clears it — at which point
+a "working" dependency vanishes. Treat the runtime path as a scratchpad and **promote
+anything load-bearing into the Dockerfile**, where the build asserts it.
+
 ## Why the custom entrypoint
 
 Paseo reads only `PASEO_PASSWORD`, and if it is missing the daemon starts **unauthenticated**,
@@ -164,5 +187,8 @@ ownership out from under this container.
   config path resolving under `/home/paseo`.
 - The Dockerfile asserts Node `>=22.19.0` at build time (Pi's floor). If upstream moves to
   Node 24, drop the assert's lower bound rather than pinning an old base.
+- Re-check the `XDG_*` paths specifically. If a base bump moves `XDG_DATA_HOME` off
+  `/home/paseo`, the Python block's masking assert still passes but its reasoning no longer
+  applies; if it moves *onto* a new volume path, the assert is what will catch it.
 - Keep the agent pins here in sync with `claude-code/Dockerfile` so both surfaces run the same
   builds. Drift is safe (state is isolated) but confusing.

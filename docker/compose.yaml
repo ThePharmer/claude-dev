@@ -70,4 +70,11 @@ volumes:
   # KEEP THE STACK NAMED 'paseo' - Compose namespaces volumes by project, so this resolves
   # to 'paseo_paseo-home' only under that name. Renaming silently creates an empty volume
   # instead of failing, losing every login and the daemon keypair.
+  #
+  # This volume also persists anything an agent installs under /home/paseo at runtime -
+  # uv's interpreters and pip installs land in $XDG_DATA_HOME, which is on it. That
+  # survives container recreation AND image bumps; nothing short of 'down -v', 'docker
+  # volume rm' or a stack rename clears it. Convenient, but it means a dependency that
+  # exists only in the volume is invisible on a fresh deploy, and no rebuild will ever
+  # say so. Promote anything load-bearing into docker/paseo/Dockerfile, which asserts it.
   paseo-home:
