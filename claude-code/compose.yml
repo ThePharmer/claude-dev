@@ -8,7 +8,13 @@ services:
       - "3001:3001"
       - "60000-61000:60000-61000/udp"
     volumes:
-      - /srv:/srv
+      # Mount the subtrees agents use, not all of /srv - this container runs as root.
+      # Keep in sync with docker/compose.yaml; both stacks share these paths.
+      - /srv/projects:/srv/projects
+      - /srv/chat:/srv/chat
+      - /srv/documents:/srv/documents:ro
+      - /srv/calibre:/srv/calibre:ro
+      - /srv/media:/srv/media:ro
       - claude-config:/claude
       # Agent config on dedicated volumes rather than inside claude-config, so each tool's
       # state can be backed up, inspected and reset independently. The image symlinks
@@ -17,6 +23,9 @@ services:
       - pi-config:/pi
       - cloudcli-config:/cloudcli
       - /opt/claude-dev/authorized_keys:/home/claude/.ssh/authorized_keys:ro
+    # /srv is not a mount; writes directly to it vanish on recreation. (SSH lands in $HOME
+    # regardless - this covers docker exec and cloudcli.)
+    working_dir: /srv/projects
     environment:
       - TZ=America/Detroit
     healthcheck:

@@ -52,11 +52,13 @@ USER root
 # package is all that is needed; it requires NO Docker security relaxation.
 #
 # Deliberately NOT setuid (upstream's secure devcontainer does 'chmod u+s /usr/bin/bwrap'
-# because it runs non-root, as we do). A setuid-root binary in a tunnel-reachable container
-# is a worse trade than Codex's fallback, so add it only if the sandbox is proven broken.
+# because it runs non-root, as we do). Note the sudo grant further down makes this a matter
+# of defaults rather than of capability - root can set the bit at runtime - but leaving it
+# unset means the sandbox is not weakened for every process by default.
 # Likewise NOT adding SYS_ADMIN/seccomp=unconfined/apparmor=unconfined: those relax the
 # container boundary that actually protects the host in order to build a weaker one inside
-# it. Verify with:  codex sandbox linux --full-auto -- /bin/sh -lc 'echo inner-ok'
+# it, and unlike sudo they are not recoverable from inside. Verify with:
+#   codex sandbox linux --full-auto -- /bin/sh -lc 'echo inner-ok'
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bubblewrap \
     && rm -rf /var/lib/apt/lists/* \
@@ -138,6 +140,25 @@ RUN case "$(readlink -f /usr/local/bin/python3)" in \
       /home/paseo/*) echo "FATAL: python3 resolves into /home/paseo, which the named volume masks at runtime"; exit 1 ;; \
     esac \
     && echo "python3 -> $(readlink -f /usr/local/bin/python3) (outside the volume)"
+
+# Passwordless sudo, matching the devcontainers common-utils default and claude-code, which
+# runs as root outright. Agents need it for system packages not worth an image rebuild.
+#
+# What it adds over uid 1000: DAC_OVERRIDE (0600 files on rw binds), setuid-root binaries on
+# the host via a rw bind mount, and NET_RAW. Not host root - no docker.sock, no --privileged,
+# no SYS_ADMIN, seccomp stays on. This is only a reasonable trade because ../compose.yaml
+# mounts a few named subtrees rather than a whole tree; revisit if that list widens.
+#
+# visudo -c because a malformed drop-in locks sudo out entirely.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends sudo \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /etc/sudoers.d \
+    && echo 'paseo ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/paseo \
+    && chmod 0440 /etc/sudoers.d/paseo \
+    && visudo -c \
+    && sudo -n -U paseo -l >/dev/null \
+    && echo "sudo: paseo has passwordless root"
 
 # Restore Claude thinking/reasoning in the Paseo timeline.
 #

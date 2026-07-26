@@ -23,7 +23,7 @@ Forked from [nezhar/claude-container](https://github.com/nezhar/claude-container
 
 ## Quick start
 
-1. Put your SSH public key(s) somewhere the container can mount, e.g. `/srv/docker/claude-dev/authorized_keys`. The entrypoint **refuses to start without it**.
+1. Put your SSH public key(s) somewhere the container can mount, e.g. `/opt/claude-dev/authorized_keys`. The entrypoint **refuses to start without it**. Keep this *outside* the trees you bind-mount for work, so a compromised agent cannot rewrite the keys that authenticate you.
 
 2. Use `example/compose.yml` as a starting point:
 
@@ -36,9 +36,14 @@ services:
       - "3001:3001"                      # CloudCLI web UI
       - "60000-61000:60000-61000/udp"    # mosh
     volumes:
-      - /srv:/workspace
+      # Mount the subtrees you actually work in, not all of /srv — a whole-tree mount
+      # also exposes host service config, documents and media to the agent. ':ro' is a
+      # kernel mount flag, so it holds even against root inside the container.
+      - /srv/projects:/srv/projects
+      - /srv/documents:/srv/documents:ro
       - claude-config:/claude
-      - /srv/docker/claude-dev/authorized_keys:/home/claude/.ssh/authorized_keys:ro
+      - /opt/claude-dev/authorized_keys:/home/claude/.ssh/authorized_keys:ro
+    working_dir: /srv/projects
     environment:
       CLAUDE_CONFIG_DIR: /claude
     restart: unless-stopped
@@ -46,6 +51,11 @@ services:
 volumes:
   claude-config:
 ```
+
+Because `/srv` itself is not mounted, it is an ephemeral directory inside the container
+with those binds grafted underneath — anything written directly to `/srv` rather than into
+one of the mounts is lost when the container is recreated. That is why `working_dir` points
+at a real mount.
 
 3. Start it and connect:
 

@@ -6,12 +6,18 @@ services:
       - "3001:3001"                      # CloudCLI web UI
       - "60000-61000:60000-61000/udp"    # mosh
     volumes:
-      - /srv:/workspace
+      # Mount the subtrees agents need, not all of /srv. A whole-tree mount also hands
+      # the container your host's service config, documents and media. ':ro' is enforced
+      # as a kernel mount flag and survives root inside the container.
+      - /srv/projects:/srv/projects
+      - /srv/chat:/srv/chat
+      - /srv/documents:/srv/documents:ro
       - claude-config:/claude
       - codex-config:/codex          # Codex CLI config/auth/sessions
       - pi-config:/pi                # Pi CLI state
       - cloudcli-config:/cloudcli    # cloudcli's ~/.cloudcli settings
-      - /srv/docker/claude-dev/authorized_keys:/home/claude/.ssh/authorized_keys:ro
+      - /opt/claude-dev/authorized_keys:/home/claude/.ssh/authorized_keys:ro
+    working_dir: /srv/projects
     environment:
       CLAUDE_CONFIG_DIR: /claude
     restart: unless-stopped

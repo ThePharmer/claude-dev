@@ -45,8 +45,14 @@ Consequences:
   that `-v` would still destroy *this* stack's own agent logins — so tear down without `-v`
   unless you mean to re-authenticate everything.
 
-The only thing shared is the code: `/srv` is bind-mounted at the **same absolute path** both
-containers use, so agent cwd, git worktree paths and absolute paths stay consistent.
+The only thing shared is the code: the `/srv` subtrees are bind-mounted at the **same
+absolute paths** both containers use, so agent cwd, git worktree paths and absolute paths
+stay consistent.
+
+Note "subtrees", not `/srv` itself — `../compose.yaml` mounts a named list and nothing else,
+so the rest of the host's `/srv` is not visible here. Because `/srv` itself is unmounted it is
+an ephemeral overlay directory with those binds grafted underneath: **writes directly to
+`/srv` are lost on container recreation**, which is why `working_dir` is `/srv/projects`.
 
 > If you later want unified transcripts and single-login instead, the alternative is the
 > full-share model: mount `claude-config` here and override the agent config dirs to point
@@ -118,6 +124,30 @@ declare it. Only `down -v`, `docker volume rm`, or a stack rename clears it — 
 a "working" dependency vanishes. Treat the runtime path as a scratchpad and **promote
 anything load-bearing into the Dockerfile**, where the build asserts it.
 
+## Passwordless sudo: granted, with the mounts narrowed to pay for it
+
+The image gives `paseo` `NOPASSWD: ALL`. That is the dev-container default —
+`devcontainers/features/common-utils` writes the identical line for every non-root user it
+creates, so every `mcr.microsoft.com/devcontainers/*` image has it — and `claude-code` goes
+further still, running as root outright via `user: root`.
+
+What it actually buys an attacker who already has code execution as uid 1000:
+
+| | uid 1000 (before) | root (with sudo) |
+|---|---|---|
+| Agent logins, `gh` token, all of `/srv/projects` | already exposed | same |
+| `0600` files on rw bind mounts | blocked | **readable** (`DAC_OVERRIDE`) |
+| setuid-root binaries on the host fs | blocked | **possible** via rw bind mount — the one real container→host path |
+| Raw sockets on the docker bridge | blocked | **`NET_RAW`** |
+| Host root directly | no | still no — no `docker.sock`, no `--privileged`, no `SYS_ADMIN`, seccomp on |
+
+The trade is only reasonable because the mount list is narrow. A whole-tree `/srv` mount
+would put every root-owned, mode-0600 file on the host within reach of that grant; the
+container now sees five named subtrees instead, three of them `:ro`.
+
+**If the mount list ever grows back toward `/srv:/srv`, revisit the sudo grant.** The two
+decisions are coupled; neither is safe to change alone.
+
 ## Why the custom entrypoint
 
 Paseo reads only `PASEO_PASSWORD`, and if it is missing the daemon starts **unauthenticated**,
@@ -177,9 +207,14 @@ lives in `bashrc.sh` → `/etc/paseo-bashrc.sh`, sourced from `/etc/bash.bashrc`
 deliberately *not* a `~/.bashrc`: `/home/paseo` is a volume, so a home-directory file would be
 masked on existing volumes and invisible to fresh ones.
 
-**Permissions on `/srv`.** Paseo is fixed at uid/gid 1000 and `/srv` is already owned by 1000,
-matching `claude-code`. Don't run `claude-code` with `USER_UID != 1000` — it would rewrite
-ownership out from under this container.
+**Permissions on `/srv`.** Paseo is fixed at uid/gid 1000 and the mounted `/srv` subtrees are
+already owned by 1000, matching `claude-code`. Don't run `claude-code` with `USER_UID != 1000`
+— it would rewrite ownership out from under this container.
+
+**"Read-only file system" writing to documents/calibre/media.** Working as intended — those
+three are mounted `:ro`. `sudo` will not help: read-only is a kernel mount flag and lifting it
+needs `CAP_SYS_ADMIN`, which is not in Docker's default capability set. If you genuinely need
+to write there, change the mount in `../compose.yaml`.
 
 ## Verify on upgrade
 

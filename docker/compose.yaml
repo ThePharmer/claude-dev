@@ -25,8 +25,17 @@ services:
       - "6767:6767"
     volumes:
       - paseo-home:/home/paseo
-      - /srv:/srv
-    working_dir: /srv
+      # Mount the subtrees agents use, not all of /srv. ':ro' is a kernel mount flag and
+      # lifting it needs CAP_SYS_ADMIN, which Docker does not grant - so it holds even
+      # against the container's root.
+      - /srv/projects:/srv/projects
+      - /srv/chat:/srv/chat
+      - /srv/documents:/srv/documents:ro
+      - /srv/calibre:/srv/calibre:ro
+      - /srv/media:/srv/media:ro
+    # /srv is not itself a mount, so writes directly to it land in the ephemeral overlay
+    # and vanish on recreation. Keep the cwd on a real mount.
+    working_dir: /srv/projects
     environment:
       TZ: America/Detroit
       # Gives Paseo's web terminals bash (and therefore a cwd in the prompt) without

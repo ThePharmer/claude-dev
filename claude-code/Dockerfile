@@ -95,7 +95,10 @@ RUN npm install -g "@earendil-works/pi-coding-agent@${PI_VERSION}" \
 # (like /claude) so they stay out of usermod's recursive rechown path when USER_UID is
 # remapped at runtime, and so each tool's state can be backed up or reset independently.
 RUN mkdir -p /claude /srv /codex /pi /cloudcli
-WORKDIR /srv
+# /srv/projects, not /srv: compose mounts the individual subtrees of /srv rather than the
+# whole tree, so /srv itself is an ephemeral overlay directory and writes to it are lost
+# on container recreation. The cwd belongs on a real mount.
+WORKDIR /srv/projects
 
 # Symlink ~/.claude -> /claude so the config path matches the mounted volume.
 # Both 'claude' and cloudcli read/write here, so this keeps them sharing one config.
