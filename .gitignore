@@ -2,3 +2,7 @@ example/workspace/
 example/claude-config/
 example/proxy-data/
 proxy-data/
+
+# Local working notes. These carry deployment specifics - hostnames, ports, tunnel and
+# access layout - and this repo is public. Keep them on disk, out of git.
+NOTES-*
