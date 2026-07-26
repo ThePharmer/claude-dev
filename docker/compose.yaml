@@ -46,6 +46,12 @@ services:
       SHELL: /bin/bash
       PASEO_PASSWORD: ${PASEO_PASSWORD:?PASEO_PASSWORD must be set as an environment variable}
       PASEO_HOSTNAMES: ${PASEO_HOSTNAMES}
+      # The daemon defaults to trusting only loopback, so it discards X-Forwarded-Proto
+      # from cloudflared - which reaches it across the docker bridge, not 127.0.0.1. It
+      # then believes it is serving plain HTTP and hands the web UI a ws:// URL, which
+      # the browser flags as mixed content on an https page. Trusting the bridge range
+      # lets it see the request as https and emit wss://.
+      PASEO_TRUSTED_PROXIES: loopback,172.16.0.0/12
       PASEO_RELAY_ENABLED: "false"
       # Disable the relay. It is a SECOND ingress that the Cloudflare tunnel never sees, and
       # on that path the daemon does not check PASEO_PASSWORD or PASEO_HOSTNAMES - the E2EE
