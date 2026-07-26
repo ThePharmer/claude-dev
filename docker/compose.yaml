@@ -1,22 +1,24 @@
-#   Paseo + T3 Code, deployed as ONE Portainer stack for a head-to-head evaluation.
-#   Both web UIs drive the same agent logins and the same /srv checkout, so differences
-#   you observe are differences in the tools, not in their setup. See docs/t3-vs-paseo.md.
+#   Paseo, deployed as a Portainer stack. It drives the agent logins and the /srv
+#   checkout that the host shares in.
 #
-#   After first deploy, authenticate each agent ONCE - both services share the volume, so
-#   logging in through either one covers both:
+#   This stack once ran a second 't3code' service for a head-to-head evaluation. That
+#   evaluation is settled in Paseo's favour and the service is gone; the scorecard is
+#   kept as a record of why in docs/t3-vs-paseo.md.
+#
+#   After first deploy, authenticate each agent ONCE:
 #     docker exec -it --user paseo paseo claude
 #     docker exec -it --user paseo paseo codex
 #     docker exec -it --user paseo paseo pi
 #     docker exec -it --user paseo paseo gh auth login   # so agents can open PRs
 #     docker exec -u paseo paseo paseo ls      # confirm Paseo sees all three
 #
-#   Tearing down: never use '-v'. It destroys the shared volume for BOTH services.
+#   Tearing down: never use '-v'. It destroys the volume holding every agent login.
 
 services:
   paseo:
     image: ghcr.io/thepharmer/paseo-agents:${PASEO_IMAGE_TAG:-latest}
-    # PASEO_IMAGE_TAG   optional; defaults to 'latest'. Set to 't3-paseo-test' to run the
-    # branch build before merging to main.
+    # PASEO_IMAGE_TAG   optional; defaults to 'latest'. Set to 'paseo' to run the branch
+    # build before merging to main.
     container_name: paseo
     restart: unless-stopped
     ports:
@@ -63,37 +65,8 @@ services:
       retries: 3
       start_period: 30s
 
-  t3code:
-    image: ghcr.io/thepharmer/t3code-agents:${T3CODE_IMAGE_TAG:-t3-paseo-test}
-    # T3CODE_IMAGE_TAG   optional; defaults to the branch build. There is no ':latest'
-    # until this is merged to main - which is the point of an evaluation stack.
-    container_name: t3code
-    restart: unless-stopped
-    ports:
-      - "3773:3773"
-    volumes:
-      - paseo-home:/home/paseo
-      - /srv:/srv
-    working_dir: /srv
-    environment:
-      TZ: America/Detroit
-      T3CODE_HOST: 0.0.0.0
-      T3CODE_PORT: 3773
-      T3CODE_HOME: /home/paseo/.t3code
-      T3CODE_TELEMETRY_ENABLED: "false"
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "fetch('http://127.0.0.1:3773/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-
 volumes:
-  # Shared by both services: Paseo daemon state, T3 Code state, and ALL agent logins.
+  # Holds Paseo daemon state and ALL agent logins.
   # KEEP THE STACK NAMED 'paseo' - Compose namespaces volumes by project, so this resolves
   # to 'paseo_paseo-home' only under that name. Renaming silently creates an empty volume
   # instead of failing, losing every login and the daemon keypair.

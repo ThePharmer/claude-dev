@@ -2,10 +2,10 @@ name: Build and Push Images
 
 on:
   push:
-    # t3-paseo-test is the single working branch: it fuses what were paseo-test and
-    # t3code-test, which had drifted on docker/paseo/Dockerfile (two different Pi pins).
-    # Those two are frozen as history and deliberately no longer build.
-    branches: [main, t3-paseo-test]
+    # paseo is the single working branch; main is the released line. Everything else
+    # (the old paseo-test / t3code-test / paseo-pi-sidecar experiments) is gone, so
+    # these two are the only refs that produce images.
+    branches: [main, paseo]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -31,9 +31,6 @@ jobs:
   # build?" is then answered by asking the registry whether that exact tag already exists,
   # rather than by diffing against a previous commit. That is correct on a first build, a
   # force-push, a re-run, and a branch cut, none of which a diff-based check handles well.
-  #
-  # t3code's content tag folds in paseo's, because it is built FROM paseo-agents: a change
-  # to the base must produce a new t3code image even when docker/t3code/ is untouched.
   # ---------------------------------------------------------------------------
   plan:
     runs-on: ubuntu-latest
@@ -44,10 +41,8 @@ jobs:
       tag_names: ${{ steps.tags.outputs.names }}
       claude_dev_ctx: ${{ steps.ctx.outputs.claude_dev }}
       paseo_ctx: ${{ steps.ctx.outputs.paseo }}
-      t3code_ctx: ${{ steps.ctx.outputs.t3code }}
       build_claude_dev: ${{ steps.need.outputs.claude_dev }}
       build_paseo: ${{ steps.need.outputs.paseo }}
-      build_t3code: ${{ steps.need.outputs.t3code }}
     steps:
       - uses: actions/checkout@v4
 
@@ -65,13 +60,9 @@ jobs:
           set -euo pipefail
           CLAUDE_DEV=$(git rev-parse "HEAD:claude-code" | cut -c1-12)
           PASEO=$(git rev-parse "HEAD:docker/paseo" | cut -c1-12)
-          T3_TREE=$(git rev-parse "HEAD:docker/t3code" | cut -c1-12)
-          # Fold the base's content tag in, so a paseo change invalidates t3code too.
-          T3CODE=$(printf '%s%s' "$T3_TREE" "$PASEO" | sha256sum | cut -c1-12)
           echo "claude_dev=$CLAUDE_DEV" >> "$GITHUB_OUTPUT"
           echo "paseo=$PASEO"           >> "$GITHUB_OUTPUT"
-          echo "t3code=$T3CODE"         >> "$GITHUB_OUTPUT"
-          echo "content tags: claude-dev=$CLAUDE_DEV paseo=$PASEO t3code=$T3CODE"
+          echo "content tags: claude-dev=$CLAUDE_DEV paseo=$PASEO"
 
       # Moving tag is 'latest' only on main, otherwise the branch or git-tag name. Without
       # that guard a push to any branch would overwrite claude-dev:latest, which the
@@ -109,8 +100,7 @@ jobs:
             fi
           }
           for pair in "claude-dev:claude_dev:${{ steps.ctx.outputs.claude_dev }}" \
-                      "paseo-agents:paseo:${{ steps.ctx.outputs.paseo }}" \
-                      "t3code-agents:t3code:${{ steps.ctx.outputs.t3code }}"; do
+                      "paseo-agents:paseo:${{ steps.ctx.outputs.paseo }}"; do
             IMG=${pair%%:*}; REST=${pair#*:}; KEY=${REST%%:*}; CTX=${REST#*:}
             R=$(check "$IMG" "$CTX")
             echo "$KEY=$R" >> "$GITHUB_OUTPUT"
@@ -233,80 +223,3 @@ jobs:
           docker run --rm --entrypoint claude "$IMAGE" --version
           docker run --rm --entrypoint codex  "$IMAGE" --version
           docker run --rm --entrypoint pi     "$IMAGE" --version
-
-  # Built FROM paseo-agents, so it waits for that job and pins the base by CONTENT tag.
-  # That tag is stable across commits that don't touch docker/paseo, so this stays
-  # deterministic even when the base build was skipped.
-  t3code-agents:
-    needs: [plan, paseo-agents]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - id: t
-        name: Expand tags
-        env:
-          NAMES: ${{ needs.plan.outputs.tag_names }}
-          CTX: ${{ needs.plan.outputs.t3code_ctx }}
-        run: |
-          set -euo pipefail
-          {
-            echo "list<<EOF"
-            for n in $NAMES; do echo "$REGISTRY/$OWNER/t3code-agents:$n"; done
-            echo "$REGISTRY/$OWNER/t3code-agents:ctx-$CTX"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - if: needs.plan.outputs.build_t3code == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: ./docker/t3code
-          push: true
-          build-args: |
-            PASEO_AGENTS_TAG=ctx-${{ needs.plan.outputs.paseo_ctx }}
-          tags: ${{ steps.t.outputs.list }}
-          cache-from: type=gha,scope=t3code-agents
-          cache-to: type=gha,scope=t3code-agents,mode=max
-
-      - if: needs.plan.outputs.build_t3code != 'true'
-        name: Retag existing image
-        env:
-          NAMES: ${{ needs.plan.outputs.tag_names }}
-          CTX: ${{ needs.plan.outputs.t3code_ctx }}
-        run: |
-          set -euo pipefail
-          ARGS=""
-          for n in $NAMES; do ARGS="$ARGS -t $REGISTRY/$OWNER/t3code-agents:$n"; done
-          docker buildx imagetools create $ARGS "$REGISTRY/$OWNER/t3code-agents:ctx-$CTX"
-          echo "reused ctx-$CTX (no rebuild)"
-
-      - if: needs.plan.outputs.build_t3code == 'true'
-        name: Smoke test
-        run: |
-          IMAGE="$REGISTRY/$OWNER/t3code-agents:ctx-${{ needs.plan.outputs.t3code_ctx }}"
-          docker run --rm --entrypoint t3     "$IMAGE" --version
-          docker run --rm --entrypoint claude "$IMAGE" --version
-          docker run --rm --entrypoint codex  "$IMAGE" --version
-
-      # The entrypoint must refuse to start when T3CODE_HOST is unset or loopback -
-      # otherwise a misconfigured stack binds loopback and looks like a tunnel problem.
-      - if: needs.plan.outputs.build_t3code == 'true'
-        name: Verify entrypoint fails closed on unreachable bind
-        run: |
-          IMAGE="$REGISTRY/$OWNER/t3code-agents:ctx-${{ needs.plan.outputs.t3code_ctx }}"
-          if docker run --rm "$IMAGE"; then
-            echo "FATAL: entrypoint started with no T3CODE_HOST set"; exit 1
-          fi
-          if docker run --rm -e T3CODE_HOST=127.0.0.1 "$IMAGE"; then
-            echo "FATAL: entrypoint started with a loopback T3CODE_HOST"; exit 1
-          fi
-          echo "entrypoint refused both unreachable configurations"

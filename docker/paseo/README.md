@@ -1,11 +1,11 @@
-# Paseo — standalone stack (with T3 Code alongside for evaluation)
+# Paseo — standalone stack
 
 Paseo daemon + web UI, running as its **own Compose stack** next to `claude-code`, reached
 through the Cloudflare tunnel at `paseo.example.com`.
 
-The same stack also runs a `t3code` service for the head-to-head evaluation in
-`docs/t3-vs-paseo.md` — one Compose project so both share `paseo-home` and therefore one
-set of agent logins. See `docker/t3code/README.md` for T3 Code itself.
+This stack briefly ran a second `t3code` service for a head-to-head evaluation. Paseo won;
+the service and its image are gone. The scorecard is kept as a record of the reasoning in
+`docs/t3-vs-paseo.md` — it is history, not a live comparison.
 
 Paseo ships no agent of its own — it orchestrates whatever agent CLIs are on `PATH`, and it
 runs them as **local subprocesses**. That's why this is a child image with Claude Code,
@@ -16,8 +16,8 @@ Codex and Pi baked in, rather than something that talks to the `claude-code` con
 - **`entrypoint.sh`** — password-secret bridge; fails closed (see below).
 - **`bashrc.sh`** — interactive-shell defaults for the web terminals; installed to
   `/etc/paseo-bashrc.sh` rather than a home directory (see troubleshooting).
-- **`../compose.yaml`** — the stack itself, one level up: it defines both the `paseo` and
-  `t3code` services, so it belongs to neither image's build context.
+- **`../compose.yaml`** — the stack itself, one level up, kept there from when it defined
+  more than one service.
 
 ## Credentials: ISOLATED (no share with claude-dev)
 
@@ -42,15 +42,16 @@ Consequences:
 - **Blast radius is contained.** This container is reachable over a public tunnel and cannot
   read claude-dev's `gh` token, cloudcli auth DB, or Claude credentials.
 - **Teardown carries no risk to claude-dev.** Nothing here touches `claude-config`. Note
-  that `-v` would still destroy *this* stack's own agent logins, and both services share
-  that volume — so tear down without `-v` unless you mean to re-authenticate everything.
+  that `-v` would still destroy *this* stack's own agent logins — so tear down without `-v`
+  unless you mean to re-authenticate everything.
 
 The only thing shared is the code: `/srv` is bind-mounted at the **same absolute path** both
 containers use, so agent cwd, git worktree paths and absolute paths stay consistent.
 
-> If you later want unified transcripts and single-login instead, that's the full-share model
-> on the `paseo-pi-sidecar` branch — it mounts `claude-config` and overrides the config dirs.
-> It trades the isolation properties above for convenience.
+> If you later want unified transcripts and single-login instead, the alternative is the
+> full-share model: mount `claude-config` here and override the agent config dirs to point
+> into it. It trades every isolation property above for convenience, on a container that is
+> reachable over a public tunnel.
 
 ## Setup (Portainer)
 
@@ -59,17 +60,12 @@ a compose file — its docs state that "building images via docker-compose ... i
 implemented" — so there is deliberately no `build:` directive here.
 `.github/workflows/docker-image.yml` publishes `ghcr.io/thepharmer/paseo-agents`.
 
-This stack runs **two services**: `paseo` and `t3code`, for the head-to-head evaluation in
-`docs/t3-vs-paseo.md`. They share the `paseo-home` volume on purpose, so a single set of
-agent logins drives both UIs and any difference you observe is a difference in the tools.
-Drop the `t3code` service once the evaluation is settled.
-
-1. **Wait for CI.** Pushing to `main` or `t3-paseo-test` builds both images. Branch builds
-   are tagged with the branch name; only `main` moves `:latest`.
+1. **Wait for CI.** Pushing to `main` or `paseo` builds the image. Branch builds are tagged
+   with the branch name; only `main` moves `:latest`.
 2. **Create the stack** in Portainer from this repo, compose path `docker/compose.yaml`.
    **Name it `paseo`.** Compose namespaces volumes by project, so the volume resolves to
    `paseo_paseo-home` only under that name — renaming the stack silently creates an empty
-   volume and both services come up with no agent logins, no daemon keypair, and no
+   volume and the service comes up with no agent logins, no daemon keypair, and no
    downloaded speech models.
 3. **Set the stack environment variables:**
 
@@ -77,11 +73,9 @@ Drop the `t3code` service once the evaluation is settled.
    |---|---|---|
    | `PASEO_PASSWORD` | yes | High-entropy. Deploy fails immediately if unset. |
    | `PASEO_HOSTNAMES` | for tunnel | DNS name(s) Paseo is reached by. IPs and localhost are allowed by default. |
-   | `PASEO_IMAGE_TAG` | no | Defaults to `latest`. Set to `t3-paseo-test` to run the branch build. |
-   | `T3CODE_IMAGE_TAG` | no | Defaults to `t3-paseo-test` — there is no `:latest` until T3 Code is merged. |
+   | `PASEO_IMAGE_TAG` | no | Defaults to `latest`. Set to `paseo` to run the branch build. |
 
-4. **Deploy**, then authenticate each agent once (persists on the `paseo-home` volume,
-   so it covers both services):
+4. **Deploy**, then authenticate each agent once (persists on the `paseo-home` volume):
 
    ```bash
    docker exec -it --user paseo paseo claude
