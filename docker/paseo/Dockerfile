@@ -185,6 +185,38 @@ RUN AGENT_JS=/usr/local/lib/node_modules/@getpaseo/server/dist/server/server/age
     && node --check "$AGENT_JS" \
     && echo "Patched Paseo Claude provider: thinking display=summarized"
 
+# Send credentials with the web app manifest request, so Cloudflare Access lets it through.
+#
+# Paseo emits a bare `<link rel="manifest" href="/manifest.json" />`. Per the Web App
+# Manifest spec the manifest is fetched with credentials mode "omit" unless the link carries
+# `crossorigin="use-credentials"` - it is the one subresource in the document that does NOT
+# send cookies by default, even same-origin. Behind Access that means the CF_Authorization
+# cookie is withheld, Access 302s the fetch to the login domain, and because the redirect
+# chain can neither send nor store the cookie it runs to the browser's redirect cap and
+# fails. That is the ~124 redirects seen per page load, and it is also why the PWA never
+# becomes installable: no manifest, no install prompt, no Android route.
+#
+# `use-credentials` puts the request in CORS mode, but the manifest is same-origin, so the
+# CORS protocol does not apply and no Access-Control-Allow-Origin header is needed. Nothing
+# has to change on the Cloudflare side.
+#
+# Patched in the dist because the web UI ships prebuilt and there is no template hook or
+# config knob for the head. Asserts on both sides so an upstream bump that changes the tag
+# fails the build instead of silently dropping the fix.
+#
+# The .br/.gz siblings are regenerated only to keep the three copies consistent: web-ui.js
+# forces acceptEncoding to undefined for index.html (it injects the connection hint into the
+# response), so today the precompressed variants are never served for this file. Verified in
+# dist/server/server/web-ui.js, serveWebUiFile. Regenerating costs nothing and means the fix
+# still holds if upstream ever starts serving them.
+RUN INDEX_HTML=/usr/local/lib/node_modules/@getpaseo/server/dist/server/web-ui/index.html \
+    && test -f "$INDEX_HTML" \
+    && test "$(grep -c '<link rel="manifest" href="/manifest.json" />' "$INDEX_HTML")" = "1" \
+    && sed -i 's#<link rel="manifest" href="/manifest.json" />#<link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />#' "$INDEX_HTML" \
+    && test "$(grep -c '<link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />' "$INDEX_HTML")" = "1" \
+    && node -e 'const z=require("zlib"),f=require("fs"),p=process.argv[1],b=f.readFileSync(p); f.writeFileSync(p+".gz",z.gzipSync(b,{level:9})); f.writeFileSync(p+".br",z.brotliCompressSync(b)); if(!z.gunzipSync(f.readFileSync(p+".gz")).equals(b)||!z.brotliDecompressSync(f.readFileSync(p+".br")).equals(b)){console.error("FATAL: recompressed index.html does not round-trip");process.exit(1)}' "$INDEX_HTML" \
+    && echo "Patched Paseo web UI: manifest link sends credentials"
+
 # Password-secret bridge. Paseo reads only PASEO_PASSWORD; a Compose secret arrives as a
 # FILE, so without this the secret is silently ignored and a tunnel-reachable daemon comes
 # up UNAUTHENTICATED. Sits between tini and the stock entrypoint, which is left untouched.

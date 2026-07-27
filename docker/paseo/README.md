@@ -160,6 +160,39 @@ the stock entrypoint unmodified, with `tini` still PID 1.
 With the Portainer env-var approach the bridge is inert and the fail-closed check is what
 matters — but it means switching to a mounted secret later needs no image change.
 
+## The manifest patch: why Access was bouncing `/manifest.json`
+
+Paseo's prebuilt `index.html` emits a bare `<link rel="manifest" href="/manifest.json" />`.
+The manifest is the **one subresource in the document that is fetched with credentials mode
+`omit` by default** — even same-origin, and unlike the favicon, the stylesheet or any XHR.
+Only `crossorigin="use-credentials"` on the link changes that.
+
+Behind Cloudflare Access the consequence is not a single 401. The uncredentialed fetch never
+sends `CF_Authorization`, so Access 302s it to the login domain; the redirect chain can
+neither send the existing cookie nor store a new one, so it bounces until the browser's
+redirect cap and fails. That is the redirect storm on every page load, and it is also why the
+PWA never became installable — no manifest, no install prompt.
+
+That last part matters beyond tidiness. The **installed PWA is the Android route**. Note the
+blocker there is Access, not Paseo: the daemon takes its password over the WebSocket
+subprotocol (`paseo.bearer.<password>`, `@getpaseo/client` daemon-client.js), so the native
+app authenticates to the daemon fine — what it cannot do is send the `CF-Access-Client-Id` /
+`CF-Access-Client-Secret` headers Access requires. On Android an installed PWA is a WebAPK
+running in Chrome, so it shares Chrome's cookie jar and inherits the Access session instead.
+
+The Dockerfile patches the tag in the shipped dist — the web UI is prebuilt, with no template
+hook or config knob for the head. Notes for whoever touches it next:
+
+- `use-credentials` puts the request in CORS mode, but the manifest is **same-origin**, so the
+  CORS protocol does not apply and no `Access-Control-Allow-Origin` is needed. **Nothing
+  changes on the Cloudflare side.**
+- The build asserts the tag before and after. An upstream bump that changes that markup
+  **fails the build** rather than quietly shipping without the fix.
+- The `.br`/`.gz` siblings are regenerated purely for consistency. `web-ui.js` forces
+  `acceptEncoding` to `undefined` for `index.html` (it injects the connection hint into the
+  response body), so the precompressed variants are **never served for this file** today.
+  Regenerating is free insurance if that ever changes.
+
 ## Relay: disabled, deliberately
 
 `PASEO_RELAY_ENABLED: "false"` is set in `../compose.yaml`. The default is `true`, so this
