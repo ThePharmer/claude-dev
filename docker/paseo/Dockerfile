@@ -18,9 +18,6 @@
 # path already resolves under /home/paseo, so the single paseo-home volume persists
 # Paseo's state AND all three agents' logins. Pi has no dedicated env var here, but it
 # inherits HOME=/home/paseo and the XDG_* dirs, so its state lands on the volume too.
-#
-# TODO(reproducibility): pin by digest once verifiable from a host with registry access:
-#   FROM ghcr.io/getpaseo/paseo:0.2.1@sha256:<digest>
 
 # uv, pulled from Astral's distroless image rather than the install script so the version
 # is a pin instead of whatever the script resolves at build time. A named stage is what

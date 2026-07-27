@@ -54,11 +54,6 @@ so the rest of the host's `/srv` is not visible here. Because `/srv` itself is u
 an ephemeral overlay directory with those binds grafted underneath: **writes directly to
 `/srv` are lost on container recreation**, which is why `working_dir` is `/srv/projects`.
 
-> If you later want unified transcripts and single-login instead, the alternative is the
-> full-share model: mount `claude-config` here and override the agent config dirs to point
-> into it. It trades every isolation property above for convenience, on a container that is
-> reachable over a public tunnel.
-
 ## Setup (Portainer)
 
 The image is **built by CI, not by the stack**. Portainer does not reliably build images from
@@ -212,15 +207,21 @@ permits and libsodium does not. An all-zero client key yields the constant share
 holding the daemon's `serverId` — a cleartext relay query parameter that is written to relay
 logs — can open a fully privileged session without the pairing link and without the password.
 
-**Consequence:** the Android/iOS app cannot reach this daemon. The app cannot send custom
-headers (React Native's WebSocket can, but Paseo's `defaultWebSocketFactory` drops them), so
-it cannot satisfy Cloudflare Access with a service token either. Browser access over the
-tunnel is unaffected.
+**Consequence:** the Android/iOS app cannot get past **Cloudflare Access** — an Access limit,
+not a Paseo one. `defaultWebSocketFactory` builds the socket as `new WebSocket(url, protocols)`
+and discards its `headers` argument (React Native's WebSocket would accept them), so the app
+cannot send `CF-Access-Client-Id` / `CF-Access-Client-Secret` and cannot satisfy Access with a
+service token.
+
+Daemon authentication itself is unaffected, and the app would clear it: `daemon-client.js`
+sends the password both as an `Authorization` header and as the `paseo.bearer.<password>`
+subprotocol, and the subprotocol survives the factory as `Sec-WebSocket-Protocol` — which is
+what `auth.js` reads, via `extractWsBearerProtocol`. Browser access over the tunnel is
+unaffected.
 
 Before re-enabling, confirm upstream rejects low-order points, and note that even fixed, a
 pairing link is a non-expiring, individually-unrevocable bearer credential with no IdP check
-on that path. The alternative that keeps mobile access is a Cloudflare private-network route
-plus WARP on the phone, which puts the app on an authenticated path instead of a public one.
+on that path.
 
 ## Troubleshooting
 
@@ -229,8 +230,8 @@ against the `Host` header Paseo actually *receives*. If the cloudflared connecto
 `httpHostHeader`, it rewrites that header and Paseo rejects the request even though the route
 is correct. Check the connector config — this is not a password problem.
 
-**Healthcheck flapping.** The check hits `/api/health`. That endpoint is confirmed for 0.1.110;
-if 0.2.x moved it, point the check at `/` instead.
+**Healthcheck flapping.** The check hits `/api/health`. Confirmed live on 0.2.1 — it returns
+200 with `{"status":"ok","timestamp":…}`. If a later bump moves it, point the check at `/`.
 
 **Terminal prompt is a bare `$` with no working directory.** `SHELL` is unset in the
 container env, so Paseo's `env.SHELL || "/bin/sh"` falls back to dash. The Dockerfile sets
