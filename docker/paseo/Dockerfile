@@ -61,9 +61,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && bwrap --version
 
-# Pi's only optional dependency (@mariozechner/clipboard) is a native module that is
-# useless in a headless container; npm treats optionalDependencies failures as non-fatal,
-# so a build host without its toolchain still produces a working image.
+# Nothing here needs a compiler. Pi's only optional dependency (@mariozechner/clipboard) is
+# a native module, but it has no install script and ships prebuilt .node binaries as
+# platform-specific optional deps - verified present in an image built with no toolchain at
+# all. It is a Rust crate, so build-essential would not build it anyway. npm also treats
+# optionalDependencies failures as non-fatal, so this stays safe if upstream drops a prebuild.
 RUN npm install -g \
       "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
       "@openai/codex@${CODEX_VERSION}" \
@@ -95,6 +97,42 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
     && apt-get install -y --no-install-recommends gh bash-completion \
     && rm -rf /var/lib/apt/lists/* \
     && gh --version
+
+# Everyday CLI tooling. The base image is deliberately minimal - it ships git, curl and
+# little else - so agents and web terminals hit "command not found" on the basics.
+#
+# This overlaps claude-code/Dockerfile's apt line but is NOT the same set: ripgrep, jq,
+# sqlite3, unzip, gnupg and build-essential are shared, while zip/less/vim/nano/tree/rsync/
+# wget/file/htop are additions here. Four of claude-code's are deliberately left out -
+# openssh-server and mosh (each a second ingress on a container reachable over a public
+# tunnel; Paseo already has web terminals), NodeSource nodejs (the base ships 22.23.1 and
+# the build asserts >=22.19 for Pi) and apt python3 (would collide with the uv-managed 3.13
+# below and its masking assert).
+#
+# ripgrep is worth calling out: it is genuinely absent here. Claude Code ships its own
+# vendored copy and shims `rg` as a shell function, so the gap is invisible from inside an
+# agent session and shows up only for everything else.
+#
+# Placement: this must precede the uv pip block below, so build-essential is available if a
+# wheel ever has to be built from source. Its position relative to the npm block above does
+# not matter - nothing there invokes a compiler (see that block's comment).
+#
+# Sizes measured against the real bookworm index, --no-install-recommends, installed:
+# core tools 24MB, editors/QoL 55MB (vim is 39MB of it), build-essential 253MB.
+#
+# ffmpeg is deliberately NOT here. Debian's ffmpeg pulls 189 packages / 449MB even with
+# --no-install-recommends, and the reason claude-code carries it - audio extraction for a
+# local-transcription tier - does not apply, because faster-whisper is not installed below.
+# Caption/transcript extraction needs neither. Revisit only alongside that decision.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+         ripgrep jq sqlite3 unzip zip less gnupg \
+         vim nano tree rsync wget file htop \
+         build-essential \
+    && rm -rf /var/lib/apt/lists/* \
+    && rg --version && jq --version && sqlite3 --version \
+    && cc --version >/dev/null && make --version >/dev/null \
+    && echo "CLI tooling OK"
 
 # ---------------------------------------------------------------------------
 # Python, via uv. The base ships no interpreter at all, so agents hit "python3: not found"
@@ -137,6 +175,48 @@ RUN case "$(readlink -f /usr/local/bin/python3)" in \
       /home/paseo/*) echo "FATAL: python3 resolves into /home/paseo, which the named volume masks at runtime"; exit 1 ;; \
     esac \
     && echo "python3 -> $(readlink -f /usr/local/bin/python3) (outside the volume)"
+
+# YouTube fetch/transcript tooling, matching claude-code's set minus faster-whisper.
+#
+# apt is the WRONG tool for these, and not just by preference: Debian's python3-* packages
+# install into /usr/lib/python3.11, and Debian's interpreter is not installed in this image
+# at all. The install would succeed and the modules would be invisible to `python3`. So it
+# has to be uv pip, which targets one specific interpreter's site-packages.
+#
+# --python is explicit rather than left to uv's discovery, because "which interpreter" is
+# exactly what decides whether this survives deploy: the managed CPython lives under
+# /usr/local/share/uv/python, while uv's own defaults write to $XDG_DATA_HOME - which the
+# base points at /home/paseo, the named volume that masks build-time writes at runtime. The
+# assert at the end is the same guard the interpreter itself gets above.
+#
+# --break-system-packages is REQUIRED, not cargo cult copied from claude-code. uv writes a
+# PEP 668 EXTERNALLY-MANAGED marker into its own managed interpreters ("This Python
+# installation is managed by uv and should not be modified"), so without the flag uv refuses
+# outright and the build dies here. Verified against the pinned uv 0.11.32 and CPython
+# 3.13.14: the marker is at <install-dir>/lib/python3.13/EXTERNALLY-MANAGED, and the same
+# command without the flag exits with "The interpreter ... is externally managed".
+#
+# faster-whisper is omitted on purpose. Its closure (ctranslate2, av, onnxruntime, tokenizers)
+# is ~95MB of wheels - call it 200-250MB installed; that range is ESTIMATED from PyPI wheel
+# sizes, not measured, unlike the apt figures above. Either way it buys a local-transcription
+# tier this container does not need. Its absence is also why ffmpeg is not installed further
+# up; the two go together, so re-add them together or not at all.
+#
+# The console scripts need symlinking for the same reason python3 did. uv installs them into
+# the managed interpreter's own bin/ (/usr/local/share/uv/python/cpython-*/bin), which is NOT
+# on PATH - only the python3/python symlinks above are. Without this, `import yt_dlp` works
+# and `yt-dlp` is command-not-found. Same fix as the interpreter, for the same reason.
+RUN uv pip install --system --break-system-packages --python /usr/local/bin/python3 --no-cache \
+        "yt-dlp[default]" youtube-transcript-api \
+    && python3 -c 'import yt_dlp, youtube_transcript_api' \
+    && PYBIN="$(dirname "$(readlink -f /usr/local/bin/python3)")" \
+    && for s in yt-dlp youtube_transcript_api; do \
+         test -x "$PYBIN/$s" || { echo "FATAL: console script $s not found in $PYBIN"; exit 1; }; \
+         ln -sf "$PYBIN/$s" "/usr/local/bin/$s"; \
+       done \
+    && yt-dlp --version \
+    && youtube_transcript_api --help >/dev/null \
+    && python3 -c 'import os, sys, yt_dlp; p = os.path.dirname(yt_dlp.__file__); print("yt_dlp ->", p); sys.exit(1 if p.startswith("/home/paseo") else 0)'
 
 # Passwordless sudo, matching the devcontainers common-utils default and claude-code, which
 # runs as root outright. Agents need it for system packages not worth an image rebuild.

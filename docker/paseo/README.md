@@ -119,6 +119,48 @@ declare it. Only `down -v`, `docker volume rm`, or a stack rename clears it — 
 a "working" dependency vanishes. Treat the runtime path as a scratchpad and **promote
 anything load-bearing into the Dockerfile**, where the build asserts it.
 
+## CLI tooling
+
+The base image is minimal — `git`, `curl`, and not much else — so the Dockerfile installs the
+everyday set: `ripgrep jq sqlite3 unzip zip less gnupg`, `vim nano tree rsync wget file htop`,
+and `build-essential`. Sizes, measured against the bookworm index with
+`--no-install-recommends`: 24 MB, 55 MB (`vim` is 39 MB of that), 253 MB.
+
+`ripgrep` is the one people assume is already there. It isn't — Claude Code ships a vendored
+copy and shims `rg` as a shell function, so the gap is invisible from inside an agent session
+and only bites everything else.
+
+On the Python side, `yt-dlp[default]` and `youtube-transcript-api` are installed with
+`uv pip`, not apt. That is a correctness requirement, not a style choice: Debian's `python3-*`
+packages target `/usr/lib/python3.11`, and **Debian's interpreter is not installed in this
+image at all** — the packages would land where nothing can import them.
+
+Two things that will bite whoever edits this next:
+
+- **`--break-system-packages` is required, not copied cargo-cult from claude-code.** uv writes
+  a PEP 668 `EXTERNALLY-MANAGED` marker into its *own* managed interpreters, so without the
+  flag `uv pip install` refuses and the build dies. Verified against the pinned uv 0.11.32 and
+  CPython 3.13.14. (This is the opposite of what you might assume — the flag reads like it
+  only applies to distro Pythons.)
+- **Console scripts need symlinking, exactly like `python3` did.** `uv pip` installs them into
+  the managed interpreter's own `bin/`, which is not on `PATH`. Skip that and you get the
+  confusing half-state where `import yt_dlp` works but `yt-dlp` is command-not-found. The
+  build asserts both scripts exist rather than skipping a missing one.
+
+The apt block must come *before* the `uv pip` block so `build-essential` is available if a
+wheel ever needs building from source. Its position relative to the npm block is arbitrary —
+nothing there invokes a compiler.
+
+Deliberately **not** installed, each for a specific reason:
+
+| | Why not |
+|---|---|
+| `openssh-server`, `mosh` | Each is a second ingress on a container reachable over a public tunnel. Paseo already has web terminals. |
+| NodeSource `nodejs` | The base ships 22.23.1 and the Dockerfile asserts ≥22.19 for Pi. |
+| apt `python3` | Would collide with the uv-managed 3.13 and its masking assert. |
+| `cloudcli` | That is claude-dev's own web UI, which this stack replaces. |
+| `ffmpeg` + `faster-whisper` | 449 MB / 189 packages (measured), and ~95 MB of wheels — 200-250 MB installed (estimated). ffmpeg exists in claude-code to extract audio for local transcription; with `faster-whisper` out, nothing here needs it. Caption and transcript extraction need neither. **Re-add them together or not at all.** |
+
 ## Passwordless sudo: granted, with the mounts narrowed to pay for it
 
 The image gives `paseo` `NOPASSWD: ALL`. That is the dev-container default —
