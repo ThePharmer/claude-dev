@@ -2,7 +2,7 @@
 #   checkout that the host shares in.
 #
 #   This stack once ran a second 't3code' service for a head-to-head evaluation. That
-#   evaluation is settled in Paseo's favour and the service is gone; the scorecard is
+#   evaluation is settled in Paseo's favor and the service is gone; the scorecard is
 #   kept as a record of why in docs/t3-vs-paseo.md.
 #
 #   After first deploy, authenticate each agent ONCE:
@@ -25,27 +25,28 @@ services:
       - "6767:6767"
     volumes:
       - paseo-home:/home/paseo
-      # Mount the subtrees agents use, not all of /srv. ':ro' is a kernel mount flag and
-      # lifting it needs CAP_SYS_ADMIN, which Docker does not grant - so it holds even
-      # against the container's root.
       - /srv/projects:/srv/projects
       - /srv/chat:/srv/chat
       - /srv/documents:/srv/documents:ro
       - /srv/calibre:/srv/calibre:ro
       - /srv/media:/srv/media:ro
-    # /srv is not itself a mount, so writes directly to it land in the ephemeral overlay
-    # and vanish on recreation. Keep the cwd on a real mount.
+      # Mount the subtrees agents use, not all of /srv. ':ro' is a kernel mount flag and
+      # lifting it needs CAP_SYS_ADMIN, which Docker does not grant - so it holds even
+      # against the container's root.
+      # /srv is not itself a mount, so writes directly to it land in the ephemeral overlay
+      # and vanish on recreation. Keep the cwd on a real mount.
     working_dir: /srv/projects
     environment:
       TZ: America/Detroit
+      SHELL: /bin/bash
       # Gives Paseo's web terminals bash (and therefore a cwd in the prompt) without
       # waiting on a CI image rebuild - Paseo falls back to /bin/sh -> dash, whose
       # prompt is a bare "$ ", whenever SHELL is unset. Redundant once an image built
       # from the current Dockerfile (which bakes ENV SHELL=/bin/bash) is deployed;
       # safe to drop then.
-      SHELL: /bin/bash
       PASEO_PASSWORD: ${PASEO_PASSWORD:?PASEO_PASSWORD must be set as an environment variable}
       PASEO_HOSTNAMES: ${PASEO_HOSTNAMES}
+      PASEO_TRUSTED_PROXIES: loopback,172.16.0.0/12
       # The daemon defaults to trusting only loopback, so it discards X-Forwarded-Proto
       # from cloudflared, which reaches it across the docker bridge rather than 127.0.0.1.
       # It therefore sees req.protocol as "http" and injects useTls:false into the web UI's
@@ -57,7 +58,6 @@ services:
       # (/^(.+):(\d{1,5})$/). The hint is discarded before useTls is ever read, and the
       # client falls back to a hard-coded localhost:6767 probe. Setting this does not
       # change that; only an upstream fix will.
-      PASEO_TRUSTED_PROXIES: loopback,172.16.0.0/12
       PASEO_RELAY_ENABLED: "false"
       # Disable the relay. It is a SECOND ingress that the Cloudflare tunnel never sees, and
       # on that path the daemon does not check PASEO_PASSWORD or PASEO_HOSTNAMES - the E2EE
@@ -87,15 +87,5 @@ services:
       start_period: 30s
 
 volumes:
-  # Holds Paseo daemon state and ALL agent logins.
-  # KEEP THE STACK NAMED 'paseo' - Compose namespaces volumes by project, so this resolves
-  # to 'paseo_paseo-home' only under that name. Renaming silently creates an empty volume
-  # instead of failing, losing every login and the daemon keypair.
-  #
-  # This volume also persists anything an agent installs under /home/paseo at runtime -
-  # uv's interpreters and pip installs land in $XDG_DATA_HOME, which is on it. That
-  # survives container recreation AND image bumps; nothing short of 'down -v', 'docker
-  # volume rm' or a stack rename clears it. Convenient, but it means a dependency that
-  # exists only in the volume is invisible on a fresh deploy, and no rebuild will ever
-  # say so. Promote anything load-bearing into docker/paseo/Dockerfile, which asserts it.
   paseo-home:
+  # Holds Paseo daemon state and ALL agent logins.
