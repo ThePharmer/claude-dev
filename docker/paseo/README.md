@@ -11,7 +11,7 @@ Paseo ships no agent of its own — it orchestrates whatever agent CLIs are on `
 runs them as **local subprocesses**. That's why this is a child image with Claude Code,
 Codex and Pi baked in, rather than something that talks to the `claude-code` container.
 
-- **`Dockerfile`** — `ghcr.io/getpaseo/paseo:0.2.1` plus the three agent CLIs, pinned to the
+- **`Dockerfile`** — `ghcr.io/getpaseo/paseo:0.2.5` plus the three agent CLIs, pinned to the
   same versions as `claude-code/Dockerfile`, plus `uv` and a managed Python (see below).
 - **`entrypoint.sh`** — password-secret bridge; fails closed (see below).
 - **`bashrc.sh`** — interactive-shell defaults for the web terminals; installed to

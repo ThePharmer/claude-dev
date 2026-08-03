@@ -4,11 +4,11 @@
 # so this child image adds Claude Code, Codex and Pi to the official base.
 #
 # Base image facts below are read from the published image config of
-# ghcr.io/getpaseo/paseo:0.2.1 (not assumed):
+# ghcr.io/getpaseo/paseo:0.2.5 (not assumed):
 #   Entrypoint  ["/usr/bin/tini", "--", "/usr/local/bin/paseo-docker-entrypoint"]
 #   User        (unset -> root; the stock entrypoint drops to uid/gid 1000 'paseo' itself)
 #   WorkingDir  /workspace          Volume  /home/paseo          Port  6767/tcp
-#   Node        22.23.1  - satisfies claude >=22.0.0, pi >=22.19.0, codex >=16
+#   Node        22.23.2  - satisfies claude >=22.0.0, pi >=22.19.0, codex >=16
 #   Env         PASEO_HOME=/home/paseo/.paseo
 #               CLAUDE_CONFIG_DIR=/home/paseo/.claude
 #               CODEX_HOME=/home/paseo/.codex
@@ -25,15 +25,15 @@
 ARG UV_VERSION="0.11.32"
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uvbin
 
-FROM ghcr.io/getpaseo/paseo:0.2.1
+FROM ghcr.io/getpaseo/paseo:0.2.5
 
 # Agent CLI pins - identical to the pins in claude-code/Dockerfile so both surfaces run
 # the same agent builds. Because this stack keeps its credentials ISOLATED from the
 # claude-config volume, these can be bumped independently without risking shared state:
 # unlike a full-share setup, drift here cannot corrupt claude-dev.
 ARG CLAUDE_CODE_VERSION="2.1.219"
-ARG CODEX_VERSION="0.145.0"
-ARG PI_VERSION="0.82.1"
+ARG CODEX_VERSION="0.146.0"
+ARG PI_VERSION="0.83.0"
 
 # Python pin. 3.13 rather than 3.14 for the wider wheel coverage; bump when the packages
 # agents actually reach for have caught up. (UV_VERSION is declared above the first FROM,
@@ -76,7 +76,7 @@ RUN npm install -g \
     && npm cache clean --force
 
 # Guard against a base-image regression: Pi needs Node >=22.19.0 and the base currently
-# ships 22.23.1, so a future upstream downgrade inside the 22.x line would break Pi at
+# ships 22.23.2, so a future upstream downgrade inside the 22.x line would break Pi at
 # runtime with no build-time signal. Fail the build instead.
 RUN node -e 'const v=process.versions.node.split(".").map(Number); if (v[0]<22 || (v[0]===22 && v[1]<19)) { console.error("FATAL: base Node "+process.versions.node+" is below pi >=22.19.0"); process.exit(1); } console.log("Node "+process.versions.node+" OK for claude/codex/pi")'
 
@@ -251,8 +251,8 @@ RUN apt-get update \
 # This is not configurable from outside: there is no daemon-level override in
 # persisted-config, the `autoExpandReasoning` UI setting is display-only, and the
 # per-agent `extra.claude` escape hatch does not carry to newly created agents.
-# Upstream has no issue filed and 0.2.1 is the latest release, so patch the two call
-# sites in the published dist. Asserts on both sides so a base-image bump fails the
+# Upstream has no issue filed and the dist is unchanged at both call sites through
+# 0.2.5 (checked against the @getpaseo/server npm tarball), so patch the published dist. Asserts on both sides so a base-image bump fails the
 # build loudly instead of silently reverting to no-thinking.
 RUN AGENT_JS=/usr/local/lib/node_modules/@getpaseo/server/dist/server/server/agent/providers/claude/agent.js \
     && test -f "$AGENT_JS" \
