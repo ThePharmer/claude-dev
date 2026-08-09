@@ -33,7 +33,7 @@ FROM ghcr.io/getpaseo/paseo:0.3.1
 # unlike a full-share setup, drift here cannot corrupt claude-dev.
 ARG CLAUDE_CODE_VERSION="2.1.220"
 ARG CODEX_VERSION="0.146.0"
-ARG PI_VERSION="0.83.0"
+ARG PI_VERSION="0.84.1"
 
 # Python pin. 3.13 rather than 3.14 for the wider wheel coverage; bump when the packages
 # agents actually reach for have caught up. (UV_VERSION is declared above the first FROM,
