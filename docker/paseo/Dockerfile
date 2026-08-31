@@ -31,9 +31,9 @@ FROM ghcr.io/getpaseo/paseo:0.7.0
 # the same agent builds. Because this stack keeps its credentials ISOLATED from the
 # claude-config volume, these can be bumped independently without risking shared state:
 # unlike a full-share setup, drift here cannot corrupt claude-dev.
-ARG CLAUDE_CODE_VERSION="2.1.231"
-ARG CODEX_VERSION="0.146.0"
-ARG PI_VERSION="0.84.1"
+ARG CLAUDE_CODE_VERSION="2.1.236"
+ARG CODEX_VERSION="0.149.1"
+ARG PI_VERSION="0.84.2"
 
 # Python pin. 3.13 rather than 3.14 for the wider wheel coverage; bump when the packages
 # agents actually reach for have caught up. (UV_VERSION is declared above the first FROM,
