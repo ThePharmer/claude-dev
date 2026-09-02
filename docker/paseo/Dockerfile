@@ -4,7 +4,7 @@
 # so this child image adds Claude Code, Codex and Pi to the official base.
 #
 # Base image facts below are read from the published image config of
-# ghcr.io/getpaseo/paseo:0.7.1 (not assumed):
+# ghcr.io/getpaseo/paseo:0.7.2 (not assumed):
 #   Entrypoint  ["/usr/bin/tini", "--", "/usr/local/bin/paseo-docker-entrypoint"]
 #   User        (unset -> root; the stock entrypoint drops to uid/gid 1000 'paseo' itself)
 #   WorkingDir  /workspace          Volume  /home/paseo          Port  6767/tcp
@@ -25,14 +25,14 @@
 ARG UV_VERSION="0.11.32"
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uvbin
 
-FROM ghcr.io/getpaseo/paseo:0.7.1
+FROM ghcr.io/getpaseo/paseo:0.7.2
 
 # Agent CLI pins - identical to the pins in claude-code/Dockerfile so both surfaces run
 # the same agent builds. Because this stack keeps its credentials ISOLATED from the
 # claude-config volume, these can be bumped independently without risking shared state:
 # unlike a full-share setup, drift here cannot corrupt claude-dev.
 ARG CLAUDE_CODE_VERSION="2.1.258"
-ARG CODEX_VERSION="0.149.1"
+ARG CODEX_VERSION="0.152.1"
 ARG PI_VERSION="0.84.2"
 
 # Python pin. 3.13 rather than 3.14 for the wider wheel coverage; bump when the packages
