@@ -58,23 +58,37 @@ services:
       # (/^(.+):(\d{1,5})$/). The hint is discarded before useTls is ever read, and the
       # client falls back to a hard-coded localhost:6767 probe. Setting this does not
       # change that; only an upstream fix will.
-      PASEO_RELAY_ENABLED: "false"
-      # Disable the relay. It is a SECOND ingress that the Cloudflare tunnel never sees, and
-      # on that path the daemon does not check PASEO_PASSWORD or PASEO_HOSTNAMES - the E2EE
-      # handshake is the only authenticator (websocket-server.ts attachExternalSocket calls
-      # attachSocket directly, skipping attachAuthenticatedSocket; sessions get scopes ["*"]).
+      # --- Relay: self-hosted, for the phone app. See docker/paseo/README.md "Relay". ---
+      PASEO_RELAY_ENABLED: "true"
+      # Set as an env override on purpose: it keeps the setting declarative here rather
+      # than in config.json on the volume. The cost is that `paseo daemon pair` cannot
+      # toggle relay at runtime, which is moot because it is already on.
+      PASEO_RELAY_ENDPOINT: paseo-relay:4000
+      PASEO_RELAY_USE_TLS: "false"
+      # The daemon dials the relay over the stack network in plaintext. Nothing sensitive
+      # crosses that hop: relay frames are NaCl-boxed end to end before they leave the
+      # daemon process.
+      PASEO_RELAY_PUBLIC_ENDPOINT: ${PASEO_RELAY_PUBLIC_ENDPOINT:?PASEO_RELAY_PUBLIC_ENDPOINT must be set (host:443 of the relay's tunnel hostname)}
+      PASEO_RELAY_PUBLIC_USE_TLS: "true"
+      # What the pairing QR advertises to the phone: the relay's Cloudflare hostname, TLS
+      # terminated at the edge. Kept out of the repo deliberately (Portainer stack env);
+      # a low-guessability label keeps scanners off the WebSocket endpoint, though the
+      # real secret is the pairing link, not the hostname.
       #
-      # That handshake is bypassable as of Paseo 0.2.1. crypto.ts importPublicKey validates
-      # length only, and deriveSharedKey does not reject an all-zero scalarmult result, which
-      # tweetnacl (unlike libsodium) permits. An all-zero client key therefore yields the
-      # constant shared key 351f86fa...bd7f91e for ANY daemon secret - verified locally
-      # against tweetnacl 1.0.3. Anyone who knows the daemon's serverId (a cleartext relay
-      # query param, written to relay logs) gets a full-authority session: a terminal as the
-      # daemon user and any file it can read, with no pairing link and no password.
+      # Trust model on this path, verified against Paseo 0.7.2 source: the daemon checks
+      # NEITHER PASEO_PASSWORD nor PASEO_HOSTNAMES (websocket-server.ts attachExternalSocket
+      # -> attachSocket directly). The E2EE handshake is the only authenticator, and the
+      # pairing link (serverId + daemon public key) is a non-expiring bearer credential
+      # with no IdP check. Treat the QR like the password. Revoking one phone means
+      # revoking all: delete daemon-keypair.json and server-id from the volume, restart,
+      # re-pair.
       #
-      # Default is true - this must be set explicitly. Re-enable only once upstream rejects
-      # low-order points, and understand that even then the pairing link is an unrevocable,
-      # non-expiring bearer credential with no IdP check on that path.
+      # The 0.2.1 all-zero-shared-key bypass that kept this off is closed: relay crypto.ts
+      # deriveSharedKey now rejects an all-zero scalarmult result, and the relay itself
+      # rejects low-order and malformed X25519 keys in hello frames before forwarding.
+    depends_on:
+      paseo-relay:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -85,6 +99,49 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+
+  paseo-relay:
+    # getpaseo/paseo-relay (Elixir), built by CI from docker/paseo-relay at a pinned commit.
+    # Single node. Plain HTTP on 4000; TLS is Cloudflare's job. Only /ws is meant to be
+    # public - the tunnel hostname rule restricts the path and 404s everything else, so
+    # /health, /ready and /metrics stay LAN-only.
+    image: ghcr.io/thepharmer/paseo-relay:${PASEO_IMAGE_TAG:-latest}
+    container_name: paseo-relay
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+      # cloudflared (separate stack) reaches it at <host>:4000, the same way it reaches
+      # the daemon at :6767.
+    environment:
+      PASEO_RELAY_HOST: 0.0.0.0
+      PASEO_RELAY_PORT: "4000"
+      PASEO_RELAY_MEMORY_WATERMARK_BYTES: "402653184"
+      # 384 MiB of the 512 MiB cap below. Upstream README: generic operators should set a
+      # nonzero watermark from the runtime limit; the relay pauses admission and sheds
+      # sockets with 1013 above it instead of being OOM-killed mid-session.
+    mem_limit: 512m
+    stop_grace_period: 30s
+    healthcheck:
+      # The runtime image has bash but no curl; /dev/tcp is enough to GET /ready, which
+      # is 503 while draining or before the capacity ledger answers.
+      test:
+        - CMD
+        - bash
+        - -c
+        - 'exec 3<>/dev/tcp/127.0.0.1/4000; printf "GET /ready HTTP/1.0\r\n\r\n" >&3; head -n1 <&3 | grep -q " 200 "'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   paseo-home:

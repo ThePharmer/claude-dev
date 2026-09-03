@@ -41,8 +41,10 @@ jobs:
       tag_names: ${{ steps.tags.outputs.names }}
       claude_dev_ctx: ${{ steps.ctx.outputs.claude_dev }}
       paseo_ctx: ${{ steps.ctx.outputs.paseo }}
+      relay_ctx: ${{ steps.ctx.outputs.relay }}
       build_claude_dev: ${{ steps.need.outputs.claude_dev }}
       build_paseo: ${{ steps.need.outputs.paseo }}
+      build_relay: ${{ steps.need.outputs.relay }}
     steps:
       - uses: actions/checkout@v4
 
@@ -60,9 +62,11 @@ jobs:
           set -euo pipefail
           CLAUDE_DEV=$(git rev-parse "HEAD:claude-code" | cut -c1-12)
           PASEO=$(git rev-parse "HEAD:docker/paseo" | cut -c1-12)
+          RELAY=$(git rev-parse "HEAD:docker/paseo-relay" | cut -c1-12)
           echo "claude_dev=$CLAUDE_DEV" >> "$GITHUB_OUTPUT"
           echo "paseo=$PASEO"           >> "$GITHUB_OUTPUT"
-          echo "content tags: claude-dev=$CLAUDE_DEV paseo=$PASEO"
+          echo "relay=$RELAY"           >> "$GITHUB_OUTPUT"
+          echo "content tags: claude-dev=$CLAUDE_DEV paseo=$PASEO relay=$RELAY"
 
       # Moving tag is 'latest' only on main, otherwise the branch or git-tag name. Without
       # that guard a push to any branch would overwrite claude-dev:latest, which the
@@ -100,7 +104,8 @@ jobs:
             fi
           }
           for pair in "claude-dev:claude_dev:${{ steps.ctx.outputs.claude_dev }}" \
-                      "paseo-agents:paseo:${{ steps.ctx.outputs.paseo }}"; do
+                      "paseo-agents:paseo:${{ steps.ctx.outputs.paseo }}" \
+                      "paseo-relay:relay:${{ steps.ctx.outputs.relay }}"; do
             IMG=${pair%%:*}; REST=${pair#*:}; KEY=${REST%%:*}; CTX=${REST#*:}
             R=$(check "$IMG" "$CTX")
             echo "$KEY=$R" >> "$GITHUB_OUTPUT"
@@ -225,3 +230,71 @@ jobs:
           docker run --rm --entrypoint pi     "$IMAGE" --version
           docker run --rm --entrypoint python3 "$IMAGE" --version
           docker run --rm --entrypoint uv     "$IMAGE" --version
+
+  # Elixir relay from getpaseo/paseo-relay, pinned in docker/paseo-relay/Dockerfile. Same
+  # content-tag scheme: the context is that one directory, so only a pin or base bump
+  # rebuilds it.
+  paseo-relay:
+    needs: plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: t
+        name: Expand tags
+        env:
+          NAMES: ${{ needs.plan.outputs.tag_names }}
+          CTX: ${{ needs.plan.outputs.relay_ctx }}
+        run: |
+          set -euo pipefail
+          {
+            echo "list<<EOF"
+            for n in $NAMES; do echo "$REGISTRY/$OWNER/paseo-relay:$n"; done
+            echo "$REGISTRY/$OWNER/paseo-relay:ctx-$CTX"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - if: needs.plan.outputs.build_relay == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./docker/paseo-relay
+          push: true
+          tags: ${{ steps.t.outputs.list }}
+          cache-from: type=gha,scope=paseo-relay
+          cache-to: type=gha,scope=paseo-relay,mode=max
+
+      - if: needs.plan.outputs.build_relay != 'true'
+        name: Retag existing image
+        env:
+          NAMES: ${{ needs.plan.outputs.tag_names }}
+          CTX: ${{ needs.plan.outputs.relay_ctx }}
+        run: |
+          set -euo pipefail
+          ARGS=""
+          for n in $NAMES; do ARGS="$ARGS -t $REGISTRY/$OWNER/paseo-relay:$n"; done
+          docker buildx imagetools create $ARGS "$REGISTRY/$OWNER/paseo-relay:ctx-$CTX"
+          echo "reused ctx-$CTX (no rebuild)"
+
+      # Boot the release and wait for readiness. /ready is 503 until the node accepts
+      # work, so a 200 proves the BEAM started, the listener bound, and the capacity
+      # ledger answered.
+      - if: needs.plan.outputs.build_relay == 'true'
+        name: Smoke test
+        run: |
+          set -euo pipefail
+          IMAGE="$REGISTRY/$OWNER/paseo-relay:ctx-${{ needs.plan.outputs.relay_ctx }}"
+          docker run -d --name relay-smoke -p 4000:4000 "$IMAGE"
+          for i in $(seq 1 30); do
+            if curl -fs http://127.0.0.1:4000/ready; then echo; echo "ready after ${i}s"; exit 0; fi
+            sleep 1
+          done
+          echo "relay never became ready"; docker logs relay-smoke; exit 1

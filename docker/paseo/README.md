@@ -74,7 +74,8 @@ implemented" — so there is deliberately no `build:` directive here.
    |---|---|---|
    | `PASEO_PASSWORD` | yes | High-entropy. Deploy fails immediately if unset. |
    | `PASEO_HOSTNAMES` | for tunnel | DNS name(s) Paseo is reached by. IPs and localhost are allowed by default. |
-   | `PASEO_IMAGE_TAG` | no | Defaults to `latest`. Set to `paseo` to run the branch build. |
+   | `PASEO_IMAGE_TAG` | no | Defaults to `latest`. Set to `paseo` to run the branch build. Also selects the relay image tag. |
+   | `PASEO_RELAY_PUBLIC_ENDPOINT` | yes | `<label>.example.com:443`, the relay's tunnel hostname. Deploy fails if unset. Keep the label out of the repo; see "Relay" below. |
 
 4. **Deploy**, then authenticate each agent once (persists on the `paseo-home` volume):
 
@@ -92,6 +93,9 @@ implemented" — so there is deliberately no `build:` directive here.
 5. **Add the Cloudflare public hostname** `paseo.example.com` → the host's `:6767` (same
    origin host as the existing `cc.example.com` → `:3001` route), duplicate the Access
    policy, and allow WebSockets.
+
+6. **Add the relay hostname** (no Access on it) and pair the phone. Steps are in the
+   "Relay" section below.
 
 To upgrade later, re-pull the stack in Portainer after CI publishes a new tag — the same
 rebuild-to-upgrade model `claude-code` uses.
@@ -230,40 +234,95 @@ hook or config knob for the head. Notes for whoever touches it next:
   response body), so the precompressed variants are **never served for this file** today.
   Regenerating is free insurance if that ever changes.
 
-## Relay: disabled, deliberately
+## Relay: self-hosted, for the phone app
 
-`PASEO_RELAY_ENABLED: "false"` is set in `../compose.yaml`. The default is `true`, so this
-has to be explicit.
+The stack runs its own copy of [getpaseo/paseo-relay](https://github.com/getpaseo/paseo-relay)
+as the `paseo-relay` service. The daemon holds an **outbound** connection to it over the
+stack network; the phone meets it there through a second tunnel hostname. Traffic is
+end-to-end encrypted between daemon and phone (NaCl box); the relay and Cloudflare forward
+opaque frames.
 
-The relay is a second ingress: the daemon holds an **outbound** connection to Paseo's
-servers, and clients meet it there. Cloudflare never sees that path, so Access does not
-gate it — and on it, the daemon checks **neither** `PASEO_PASSWORD` **nor** `PASEO_HOSTNAMES`.
-`attachExternalSocket` calls `attachSocket` directly, skipping `attachAuthenticatedSocket`,
-and the resulting session gets `scopes: ["*"]` — a terminal as the daemon user and any file
-that user can read. The E2EE handshake is the only authenticator.
+Why a relay at all: the native app cannot pass **Cloudflare Access**. Access's only
+non-browser mechanism is service-token headers on the WebSocket handshake, and the app has
+no way to configure them (upstream issue #3151, discussion #3125). The relay path never
+touches Access. Browser access over `paseo.example.com` is unchanged and still gated by Access.
 
-As of Paseo 0.2.1 that handshake is bypassable. `crypto.ts` validates public-key *length*
-only, and `deriveSharedKey` does not reject an all-zero scalarmult result — which tweetnacl
-permits and libsodium does not. An all-zero client key yields the constant shared key
-`351f86fa…bd7f91e` for any daemon secret (verified locally against tweetnacl 1.0.3). Anyone
-holding the daemon's `serverId` — a cleartext relay query parameter that is written to relay
-logs — can open a fully privileged session without the pairing link and without the password.
+### What protects the daemon on this path
 
-**Consequence:** the Android/iOS app cannot get past **Cloudflare Access** — an Access limit,
-not a Paseo one. `defaultWebSocketFactory` builds the socket as `new WebSocket(url, protocols)`
-and discards its `headers` argument (React Native's WebSocket would accept them), so the app
-cannot send `CF-Access-Client-Id` / `CF-Access-Client-Secret` and cannot satisfy Access with a
-service token.
+Verified against Paseo 0.7.2 and paseo-relay `3fc41c9`:
 
-Daemon authentication itself is unaffected, and the app would clear it: `daemon-client.js`
-sends the password both as an `Authorization` header and as the `paseo.bearer.<password>`
-subprotocol, and the subprotocol survives the factory as `Sec-WebSocket-Protocol` — which is
-what `auth.js` reads, via `extractWsBearerProtocol`. Browser access over the tunnel is
-unaffected.
+- The daemon checks **neither** `PASEO_PASSWORD` **nor** `PASEO_HOSTNAMES` on relay
+  sessions (`attachExternalSocket` calls `attachSocket` directly; sessions get owner
+  scopes). The E2EE handshake is the only authenticator.
+- The handshake needs the daemon's public key, which exists only in the pairing link
+  (`serverId` + key + relay endpoint). A stranger who reaches the relay cannot derive the
+  shared key; the daemon closes any connection whose first frame does not decrypt.
+- The 0.2.1 all-zero-shared-key bypass is closed: `deriveSharedKey` rejects an all-zero
+  scalarmult result, and the relay rejects low-order and malformed X25519 keys in `hello`
+  frames before forwarding them.
+- `serverId` is 9 random bytes (72 bits). Without it the relay answers `400`; with it and
+  no key, the worst case is nuisance sockets bounded by the relay's capacity ledger.
 
-Before re-enabling, confirm upstream rejects low-order points, and note that even fixed, a
-pairing link is a non-expiring, individually-unrevocable bearer credential with no IdP check
-on that path.
+**Consequence:** the pairing link is a non-expiring, owner-level bearer credential with no
+IdP check. Treat the QR like the daemon password. Revocation is all-or-nothing: delete
+`daemon-keypair.json` and `server-id` from the `paseo-home` volume, restart, re-pair every
+phone.
+
+### Cloudflare: add the relay hostname (dashboard)
+
+Pick a random label so the WebSocket endpoint is not discoverable by guessing. Universal
+SSL's wildcard covers it, so the label does not appear in Certificate Transparency. The
+label lives only in the Portainer stack variable `PASEO_RELAY_PUBLIC_ENDPOINT`.
+
+1. Zero Trust → Networks → Tunnels → your tunnel → **Public Hostname** → Add.
+   Subdomain `<label>`, domain `example.com`, **Path** `^/ws`, service
+   `HTTP` → `<host-ip>:4000` (same origin host as the `:6767` rule). Save.
+2. Add a second rule for the same hostname with **no path** and service type
+   `HTTP status` → `404`. Make sure the `^/ws` rule sorts **above** it. This keeps
+   `/health`, `/ready` and `/metrics` LAN-only.
+3. Do **not** create an Access application for this hostname. Check that no existing
+   wildcard Access app (`*.example.com`) covers it; if one does, add a path-scoped
+   Bypass for `<label>.example.com/ws`.
+4. Optional: Security → WAF → Rate limiting rules: hostname equals `<label>.example.com`,
+   10 requests per 10 seconds per IP, block. The relay has its own capacity ledger; this is
+   belt and braces against scanners.
+
+### Deploy, verify, pair
+
+1. Set `PASEO_RELAY_PUBLIC_ENDPOINT=<label>.example.com:443` in the stack, re-pull, update.
+2. From the host:
+
+   ```bash
+   curl -s http://127.0.0.1:4000/ready                                 # 200
+   curl -s -o /dev/null -w '%{http_code}\n' https://<label>.example.com/ready   # 404 (catch-all)
+   docker logs paseo 2>&1 | grep relay_control_connected               # daemon reached the relay
+   ```
+
+3. Pair the phone:
+
+   ```bash
+   docker exec -it --user paseo paseo paseo daemon pair
+   ```
+
+   It prints a QR and link carrying `<label>.example.com:443` with TLS on (the public
+   endpoint, not the stack-internal one). Scan it with the Paseo app.
+4. Open the host from the phone on mobile data, then confirm both sockets from the host:
+
+   ```bash
+   curl -s http://127.0.0.1:4000/metrics | grep -i active
+   ```
+
+### Upgrading the relay
+
+The image is built from `../paseo-relay/Dockerfile`, which pins an upstream commit. Bump
+`PASEO_RELAY_REF` (and the base image tags, copied from upstream's Dockerfile at that
+commit), push, wait for CI, re-pull the stack. The pairing does not change across relay
+upgrades; keypair and `server-id` live on the volume.
+
+### Rollback
+
+Set `PASEO_RELAY_ENABLED` to `"false"`, remove the `paseo-relay` service and the
+`depends_on`, redeploy. Paired phones stay valid for a later re-enable.
 
 ## Troubleshooting
 
