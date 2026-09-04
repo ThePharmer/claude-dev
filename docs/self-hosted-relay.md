@@ -340,3 +340,11 @@ service and daemon env, README runbook). Section 4 is now the README's "Relay" s
   policy; then update the PR body. iOS untested.
 - Relay image published as ghcr.io/thepharmer/paseo-relay:paseo; Portainer variable and
   Cloudflare hostname rule still to be applied by hand per the README.
+
+## Decision (2026-09-04)
+
+Relay on hold. The Android QA APK connects to paseo.thepharmer.dev through Cloudflare Access
+with the two service-token headers and is rejected without them (phone screenshots on PR 4290).
+The relay stack is parked on the `relay` branch of this repo; `paseo` carries the pre-relay
+compose again. Next: a fork workflow that rebuilds the header-patched APK for each upstream
+release until the PR merges.

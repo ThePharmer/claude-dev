@@ -234,7 +234,13 @@ hook or config knob for the head. Notes for whoever touches it next:
   response body), so the precompressed variants are **never served for this file** today.
   Regenerating is free insurance if that ever changes.
 
-## Relay: self-hosted, for the phone app
+## Relay: self-hosted, for the phone app (on hold)
+
+**Status:** not deployed. The phone connects through Cloudflare Access with service-token
+headers using the app build from getpaseo/paseo#4290, so `../compose.yaml` on this branch keeps
+`PASEO_RELAY_ENABLED: "false"` and has no relay service. The full relay stack (compose service,
+image, runbook below) is staged on the `relay` branch and the image is already published as
+`ghcr.io/thepharmer/paseo-relay`. Merge that branch if the header path ever stops being viable.
 
 The stack runs its own copy of [getpaseo/paseo-relay](https://github.com/getpaseo/paseo-relay)
 as the `paseo-relay` service. The daemon holds an **outbound** connection to it over the
