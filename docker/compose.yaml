@@ -1,24 +1,10 @@
-#   Paseo, deployed as a Portainer stack. It drives the agent logins and the /srv
-#   checkout that the host shares in.
-#
-#   This stack once ran a second 't3code' service for a head-to-head evaluation. That
-#   evaluation is settled in Paseo's favor and the service is gone; the scorecard is
-#   kept as a record of why in docs/t3-vs-paseo.md.
-#
-#   After first deploy, authenticate each agent ONCE:
-#     docker exec -it --user paseo paseo claude
-#     docker exec -it --user paseo paseo codex
-#     docker exec -it --user paseo paseo pi
-#     docker exec -it --user paseo paseo gh auth login   # so agents can open PRs
-#     docker exec -u paseo paseo paseo ls      # confirm Paseo sees all three
-#
-#   Tearing down: never use '-v'. It destroys the volume holding every agent login.
+# Paseo, deployed as a Portainer stack. Name the stack "paseo" (volume is paseo_paseo-home).
+# Tearing down: never use '-v'. It destroys the volume holding every agent login.
 
 services:
   paseo:
     image: ghcr.io/thepharmer/paseo-agents:${PASEO_IMAGE_TAG:-latest}
-    # PASEO_IMAGE_TAG   optional; defaults to 'latest'. Set to 'paseo' to run the branch
-    # build before merging to main.
+    # PASEO_IMAGE_TAG also selects the relay image tag below.
     container_name: paseo
     restart: unless-stopped
     ports:
@@ -30,62 +16,25 @@ services:
       - /srv/documents:/srv/documents:ro
       - /srv/calibre:/srv/calibre:ro
       - /srv/media:/srv/media:ro
-      # Mount the subtrees agents use, not all of /srv. ':ro' is a kernel mount flag and
-      # lifting it needs CAP_SYS_ADMIN, which Docker does not grant - so it holds even
-      # against the container's root.
-      # /srv is not itself a mount, so writes directly to it land in the ephemeral overlay
-      # and vanish on recreation. Keep the cwd on a real mount.
+      # /srv itself is not a mount; writes outside these paths vanish on recreation.
     working_dir: /srv/projects
     environment:
       TZ: America/Detroit
       SHELL: /bin/bash
-      # Gives Paseo's web terminals bash (and therefore a cwd in the prompt) without
-      # waiting on a CI image rebuild - Paseo falls back to /bin/sh -> dash, whose
-      # prompt is a bare "$ ", whenever SHELL is unset. Redundant once an image built
-      # from the current Dockerfile (which bakes ENV SHELL=/bin/bash) is deployed;
-      # safe to drop then.
       PASEO_PASSWORD: ${PASEO_PASSWORD:?PASEO_PASSWORD must be set as an environment variable}
       PASEO_HOSTNAMES: ${PASEO_HOSTNAMES}
+      # cloudflared reaches the daemon across the docker bridge, not loopback.
       PASEO_TRUSTED_PROXIES: loopback,172.16.0.0/12
-      # The daemon defaults to trusting only loopback, so it discards X-Forwarded-Proto
-      # from cloudflared, which reaches it across the docker bridge rather than 127.0.0.1.
-      # It therefore sees req.protocol as "http" and injects useTls:false into the web UI's
-      # initial connection hint (server/web-ui.js).
-      #
-      # This is correctness hygiene, NOT a fix for the UI failing to auto-connect. That has
-      # a separate upstream cause: the hint carries the Host header verbatim, browsers omit
-      # the default port, and @getpaseo/protocol parseHostPort requires an explicit port
-      # (/^(.+):(\d{1,5})$/). The hint is discarded before useTls is ever read, and the
-      # client falls back to a hard-coded localhost:6767 probe. Setting this does not
-      # change that; only an upstream fix will.
-      # --- Relay: self-hosted, for the phone app. See docker/paseo/README.md "Relay". ---
+      # Relay: self-hosted, for the phone app. See docker/paseo/README.md "Relay".
+      # Relay sessions skip PASEO_PASSWORD and PASEO_HOSTNAMES; the pairing link is the
+      # credential. Treat the QR like the password. Revoking one phone revokes all.
       PASEO_RELAY_ENABLED: "true"
-      # Set as an env override on purpose: it keeps the setting declarative here rather
-      # than in config.json on the volume. The cost is that `paseo daemon pair` cannot
-      # toggle relay at runtime, which is moot because it is already on.
       PASEO_RELAY_ENDPOINT: paseo-relay:4000
       PASEO_RELAY_USE_TLS: "false"
-      # The daemon dials the relay over the stack network in plaintext. Nothing sensitive
-      # crosses that hop: relay frames are NaCl-boxed end to end before they leave the
-      # daemon process.
+      # Public endpoint advertised in the pairing QR: the relay's tunnel hostname.
+      # Kept out of the repo on purpose; set it in the Portainer stack env.
       PASEO_RELAY_PUBLIC_ENDPOINT: ${PASEO_RELAY_PUBLIC_ENDPOINT:?PASEO_RELAY_PUBLIC_ENDPOINT must be set (host:443 of the relay's tunnel hostname)}
       PASEO_RELAY_PUBLIC_USE_TLS: "true"
-      # What the pairing QR advertises to the phone: the relay's Cloudflare hostname, TLS
-      # terminated at the edge. Kept out of the repo deliberately (Portainer stack env);
-      # a low-guessability label keeps scanners off the WebSocket endpoint, though the
-      # real secret is the pairing link, not the hostname.
-      #
-      # Trust model on this path, verified against Paseo 0.7.2 source: the daemon checks
-      # NEITHER PASEO_PASSWORD nor PASEO_HOSTNAMES (websocket-server.ts attachExternalSocket
-      # -> attachSocket directly). The E2EE handshake is the only authenticator, and the
-      # pairing link (serverId + daemon public key) is a non-expiring bearer credential
-      # with no IdP check. Treat the QR like the password. Revoking one phone means
-      # revoking all: delete daemon-keypair.json and server-id from the volume, restart,
-      # re-pair.
-      #
-      # The 0.2.1 all-zero-shared-key bypass that kept this off is closed: relay crypto.ts
-      # deriveSharedKey now rejects an all-zero scalarmult result, and the relay itself
-      # rejects low-order and malformed X25519 keys in hello frames before forwarding.
     depends_on:
       paseo-relay:
         condition: service_healthy
@@ -101,29 +50,23 @@ services:
       start_period: 30s
 
   paseo-relay:
-    # getpaseo/paseo-relay (Elixir), built by CI from docker/paseo-relay at a pinned commit.
-    # Single node. Plain HTTP on 4000; TLS is Cloudflare's job. Only /ws is meant to be
-    # public - the tunnel hostname rule restricts the path and 404s everything else, so
-    # /health, /ready and /metrics stay LAN-only.
+    # getpaseo/paseo-relay, built by CI from docker/paseo-relay at a pinned commit.
+    # Plain HTTP; TLS terminates at Cloudflare. Only /ws may be public: the tunnel
+    # hostname rule must 404 everything else so /health, /ready, /metrics stay LAN-only.
     image: ghcr.io/thepharmer/paseo-relay:${PASEO_IMAGE_TAG:-latest}
     container_name: paseo-relay
     restart: unless-stopped
     ports:
       - "4000:4000"
-      # cloudflared (separate stack) reaches it at <host>:4000, the same way it reaches
-      # the daemon at :6767.
     environment:
       PASEO_RELAY_HOST: 0.0.0.0
       PASEO_RELAY_PORT: "4000"
+      # 384 MiB of the 512 MiB cap: the relay sheds sockets instead of being OOM-killed.
       PASEO_RELAY_MEMORY_WATERMARK_BYTES: "402653184"
-      # 384 MiB of the 512 MiB cap below. Upstream README: generic operators should set a
-      # nonzero watermark from the runtime limit; the relay pauses admission and sheds
-      # sockets with 1013 above it instead of being OOM-killed mid-session.
     mem_limit: 512m
     stop_grace_period: 30s
     healthcheck:
-      # The runtime image has bash but no curl; /dev/tcp is enough to GET /ready, which
-      # is 503 while draining or before the capacity ledger answers.
+      # Image has bash but no curl. /ready is 503 until the node accepts work.
       test:
         - CMD
         - bash
@@ -145,4 +88,4 @@ services:
 
 volumes:
   paseo-home:
-  # Holds Paseo daemon state and ALL agent logins.
+  # Daemon state and ALL agent logins.
