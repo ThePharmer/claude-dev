@@ -74,8 +74,8 @@ implemented" — so there is deliberately no `build:` directive here.
    |---|---|---|
    | `PASEO_PASSWORD` | yes | High-entropy. Deploy fails immediately if unset. |
    | `PASEO_HOSTNAMES` | for tunnel | DNS name(s) Paseo is reached by. IPs and localhost are allowed by default. |
-   | `PASEO_IMAGE_TAG` | no | Defaults to `latest`. Set to `paseo` to run the branch build. Also selects the relay image tag. |
-   | `PASEO_RELAY_PUBLIC_ENDPOINT` | yes | `<label>.example.com:443`, the relay's tunnel hostname. Deploy fails if unset. Keep the label out of the repo; see "Relay" below. |
+   | `PASEO_IMAGE_TAG` | no | Defaults to `latest`. Set to `paseo` to run the branch build. |
+   | `PASEO_RELAY_PUBLIC_ENDPOINT` | relay branch only | Not read on this branch. Required only by the compose on the `relay` branch; see "Relay" below. |
 
 4. **Deploy**, then authenticate each agent once (persists on the `paseo-home` volume):
 
@@ -94,8 +94,10 @@ implemented" — so there is deliberately no `build:` directive here.
    origin host as the existing `cc.example.com` → `:3001` route), duplicate the Access
    policy, and allow WebSockets.
 
-6. **Add the relay hostname** (no Access on it) and pair the phone. Steps are in the
-   "Relay" section below.
+6. **Phone access.** The Android app connects through the same hostname and Access policy
+   using service-token headers (getpaseo/paseo#4290): add a Service Auth policy with a
+   service token, then enter `CF-Access-Client-Id` and `CF-Access-Client-Secret` as custom
+   headers under Direct connection > Advanced. The relay alternative is on hold; see below.
 
 To upgrade later, re-pull the stack in Portainer after CI publishes a new tag — the same
 rebuild-to-upgrade model `claude-code` uses.
