@@ -322,3 +322,21 @@ before promising screenshots.
 
 Status: sections 3a to 3d are applied in the repo (Dockerfile, workflow job, compose
 service and daemon env, README runbook). Section 4 is now the README's "Relay" section.
+
+## Outcome (2026-09-03, evening)
+
+- Draft PR opened upstream: https://github.com/getpaseo/paseo/pull/4290
+  (branch `feat/native-direct-connection-headers` on the ThePharmer fork, one commit).
+- Android emulator evidence, green run: https://github.com/ThePharmer/paseo/actions/runs/33818465141
+  (workflow `native-headers-qa.yml` on the fork's `qa/native-headers-android` branch).
+  A stock 0.7.2 daemon behind a header-gating proxy: header-less handshake rejected,
+  header-carrying handshake accepted, daemon session attached, home screen reached.
+- Screenshots and gate log: fork branch `pr-assets/native-headers`.
+- Tests: protocol 640, client 144, app 4933 passed; one app file
+  (`use-agent-history.test.ts`) fails identically on upstream main. Typecheck, lint,
+  format clean.
+- Pending for a human: sideload the QA APK (artifact of run 33793518962; debug-signed,
+  uninstall any store build first) and connect through the real Access service-token
+  policy; then update the PR body. iOS untested.
+- Relay image published as ghcr.io/thepharmer/paseo-relay:paseo; Portainer variable and
+  Cloudflare hostname rule still to be applied by hand per the README.
