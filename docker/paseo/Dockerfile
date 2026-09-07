@@ -32,8 +32,8 @@ FROM ghcr.io/getpaseo/paseo:0.7.2
 # claude-config volume, these can be bumped independently without risking shared state:
 # unlike a full-share setup, drift here cannot corrupt claude-dev.
 ARG CLAUDE_CODE_VERSION="2.1.258"
-ARG CODEX_VERSION="0.152.1"
-ARG PI_VERSION="0.84.2"
+ARG CODEX_VERSION="0.153.4"
+ARG PI_VERSION="0.84.4"
 
 # Python pin. 3.13 rather than 3.14 for the wider wheel coverage; bump when the packages
 # agents actually reach for have caught up. (UV_VERSION is declared above the first FROM,
