@@ -2,7 +2,7 @@ FROM debian:bookworm-slim
 
 # Pin Claude Code. Default is the version you asked for; override at build with
 #   docker build --build-arg CLAUDE_CODE_VERSION=2.1.258 ...
-ARG CLAUDE_CODE_VERSION="2.1.278"
+ARG CLAUDE_CODE_VERSION="2.1.280"
 
 # Node major version for cloudcli (it requires Node 22+).
 ARG NODE_MAJOR="24"
