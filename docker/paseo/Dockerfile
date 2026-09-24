@@ -25,15 +25,15 @@
 ARG UV_VERSION="0.11.32"
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uvbin
 
-FROM ghcr.io/getpaseo/paseo:0.9.1
+FROM ghcr.io/getpaseo/paseo:0.9.2
 
 # Agent CLI pins - identical to the pins in claude-code/Dockerfile so both surfaces run
 # the same agent builds. Because this stack keeps its credentials ISOLATED from the
 # claude-config volume, these can be bumped independently without risking shared state:
 # unlike a full-share setup, drift here cannot corrupt claude-dev.
-ARG CLAUDE_CODE_VERSION="2.1.280"
+ARG CLAUDE_CODE_VERSION="2.1.281"
 ARG CODEX_VERSION="0.155.1"
-ARG PI_VERSION="0.85.1"
+ARG PI_VERSION="0.87.1"
 
 # Python pin. 3.13 rather than 3.14 for the wider wheel coverage; bump when the packages
 # agents actually reach for have caught up. (UV_VERSION is declared above the first FROM,
