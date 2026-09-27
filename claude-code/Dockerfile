@@ -84,7 +84,7 @@ RUN npm install -g @cloudcli-ai/cloudcli \
 # Pi has no install/postinstall hook - its only optional dep (@mariozechner/clipboard) is
 # a native module that is useless headless, and npm treats optional-dep failures as
 # non-fatal, so a plain install is safe here.
-ARG CODEX_VERSION="0.156.1"
+ARG CODEX_VERSION="0.157.1"
 ARG PI_VERSION="0.87.1"
 RUN npm install -g "@openai/codex@${CODEX_VERSION}" \
     && codex --version
