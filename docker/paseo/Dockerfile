@@ -25,7 +25,7 @@
 ARG UV_VERSION="0.11.32"
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uvbin
 
-FROM ghcr.io/getpaseo/paseo:0.9.2
+FROM ghcr.io/getpaseo/paseo:0.10.1
 
 # Agent CLI pins - identical to the pins in claude-code/Dockerfile so both surfaces run
 # the same agent builds. Because this stack keeps its credentials ISOLATED from the
