@@ -44,18 +44,12 @@ ARG PYTHON_VERSION="3.13"
 # root and deliberately do NOT set USER - overriding it would break that drop.
 USER root
 
-# bubblewrap backs Codex's Linux sandbox. Without it on PATH Codex warns and falls back to
-# its bundled copy - functional, but noisy and unpinned to the distro build. Installing the
-# package is all that is needed; it requires NO Docker security relaxation.
-#
-# Deliberately NOT setuid (upstream's secure devcontainer does 'chmod u+s /usr/bin/bwrap'
-# because it runs non-root, as we do). Note the sudo grant further down makes this a matter
-# of defaults rather than of capability - root can set the bit at runtime - but leaving it
-# unset means the sandbox is not weakened for every process by default.
-# Likewise NOT adding SYS_ADMIN/seccomp=unconfined/apparmor=unconfined: those relax the
-# container boundary that actually protects the host in order to build a weaker one inside
-# it, and unlike sudo they are not recoverable from inside. Verify with:
-#   codex sandbox linux --full-auto -- /bin/sh -lc 'echo inner-ok'
+# bubblewrap backs Codex's Linux sandbox. Installing it supplies the executable;
+# Docker must also permit its nested user namespaces and mount setup. The paired
+# seccomp/AppArmor profiles in security/ provide those exceptions at container creation.
+# Keep bwrap non-setuid and the container without added SYS_ADMIN or unconfined profiles.
+# Install the host policy and run security/verify-host.sh before deploying the stack.
+# The version check below verifies packaging only, not runtime sandbox compatibility.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bubblewrap \
     && rm -rf /var/lib/apt/lists/* \
@@ -66,12 +60,15 @@ RUN apt-get update \
 # platform-specific optional deps - verified present in an image built with no toolchain at
 # all. It is a Rust crate, so build-essential would not build it anyway. npm also treats
 # optionalDependencies failures as non-fatal, so this stays safe if upstream drops a prebuild.
+# The root-run Codex version probe creates tmp/arg0 with mode 0700. Return that
+# scratch tree to paseo so runtime helper aliases can be created (required by bwrap 0.8).
 RUN npm install -g \
       "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
       "@openai/codex@${CODEX_VERSION}" \
       "@earendil-works/pi-coding-agent@${PI_VERSION}" \
     && claude --version \
     && codex --version \
+    && chown -hR paseo:paseo /home/paseo/.codex/tmp \
     && pi --version \
     && npm cache clean --force
 

@@ -6,6 +6,12 @@ services:
     image: ghcr.io/thepharmer/paseo-agents:${PASEO_IMAGE_TAG:-latest}
     container_name: paseo
     restart: unless-stopped
+    # AppArmor is loaded on the Docker host.
+    # The seccomp file must also be copied into Portainer at this path.
+    # See paseo/security/README.md.
+    security_opt:
+      - seccomp=/data/paseo-codex-bwrap.json
+      - apparmor=paseo-codex-bwrap
     ports:
       - "6767:6767"
     volumes:

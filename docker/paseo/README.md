@@ -54,6 +54,14 @@ so the rest of the host's `/srv` is not visible here. Because `/srv` itself is u
 an ephemeral overlay directory with those binds grafted underneath: **writes directly to
 `/srv` are lost on container recreation**, which is why `working_dir` is `/srv/projects`.
 
+## Codex sandbox host setup
+
+Before deploying the stack, install the paired AppArmor/seccomp profiles on the
+Docker host and run the disposable-container test in [security/README.md](security/README.md).
+The Compose file requires the named AppArmor profile, and its seccomp JSON must be
+copied into Portainer's `/data` volume (see the security README).
+The host setup is required even though bubblewrap is already installed in the image.
+
 ## Setup (Portainer)
 
 The image is **built by CI, not by the stack**. Portainer does not reliably build images from
