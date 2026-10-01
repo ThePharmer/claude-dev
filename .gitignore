@@ -6,3 +6,19 @@ proxy-data/
 # Local working notes. These carry deployment specifics - hostnames, ports, tunnel and
 # access layout - and this repo is public. Keep them on disk, out of git.
 NOTES-*
+
+# Personal research and ops notes. Several carry LAN and host details; same reason as above.
+docs/ctx-recall-wrapper-plan.md
+docs/ctx-thinking-retention-issue-draft.md
+docs/pbs-build-plan.md
+docs/pbs-research/
+docs/preflight-2026-09-21.txt
+docs/proxmox-readonly-agent-access-research.md
+docs/proxmox-readonly-cli-skill-design.md
+docs/pve-preflight-response.md
+docs/pve-preflight.sh
+docs/pve8-to-9-upgrade-plan.md
+docs/transcript-search-bakeoff.md
+docker/paseo/cf-access-probe.sh
+migrating-claude-config-to-paseo.html
+pid-lock-bug/
