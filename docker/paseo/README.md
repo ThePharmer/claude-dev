@@ -170,7 +170,7 @@ Deliberately **not** installed, each for a specific reason:
 | | Why not |
 |---|---|
 | `openssh-server`, `mosh` | Each is a second ingress on a container reachable over a public tunnel. Paseo already has web terminals. |
-| NodeSource `nodejs` | The base ships 22.23.1 and the Dockerfile asserts ≥22.19 for Pi. |
+| NodeSource `nodejs` | The base ships 22.23.3 and the Dockerfile asserts ≥22.19 for Pi. |
 | apt `python3` | Would collide with the uv-managed 3.13 and its masking assert. |
 | `cloudcli` | That is claude-dev's own web UI, which this stack replaces. |
 | `ffmpeg` + `faster-whisper` | 449 MB / 189 packages (measured), and ~95 MB of wheels — 200-250 MB installed (estimated). ffmpeg exists in claude-code to extract audio for local transcription; with `faster-whisper` out, nothing here needs it. Caption and transcript extraction need neither. **Re-add them together or not at all.** |

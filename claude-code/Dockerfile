@@ -2,7 +2,7 @@ FROM debian:bookworm-slim
 
 # Pin Claude Code. Default is the version you asked for; override at build with
 #   docker build --build-arg CLAUDE_CODE_VERSION=2.1.258 ...
-ARG CLAUDE_CODE_VERSION="2.1.284"
+ARG CLAUDE_CODE_VERSION="2.1.293"
 
 # Node major version for cloudcli (it requires Node 22+).
 ARG NODE_MAJOR="24"
@@ -81,11 +81,9 @@ RUN npm install -g @cloudcli-ai/cloudcli \
 # Codex + Pi coding agents. Pinned like Claude Code (rebuild-to-upgrade). These are for
 # interactive / cloudcli use INSIDE this container; the standalone Paseo stack installs
 # its own copies at the same pins (docker/paseo/Dockerfile).
-# Pi has no install/postinstall hook - its only optional dep (@mariozechner/clipboard) is
-# a native module that is useless headless, and npm treats optional-dep failures as
-# non-fatal, so a plain install is safe here.
+# Pi has no install/postinstall hook and no optional deps, so a plain install is safe here.
 ARG CODEX_VERSION="0.159.2"
-ARG PI_VERSION="0.87.1"
+ARG PI_VERSION="1.1.0"
 RUN npm install -g "@openai/codex@${CODEX_VERSION}" \
     && codex --version
 RUN npm install -g "@earendil-works/pi-coding-agent@${PI_VERSION}" \

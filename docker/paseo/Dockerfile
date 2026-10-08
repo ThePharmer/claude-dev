@@ -4,11 +4,11 @@
 # so this child image adds Claude Code, Codex and Pi to the official base.
 #
 # Base image facts below are read from the published image config of
-# ghcr.io/getpaseo/paseo:0.8.0 (not assumed):
+# ghcr.io/getpaseo/paseo:0.11.1 (not assumed):
 #   Entrypoint  ["/usr/bin/tini", "--", "/usr/local/bin/paseo-docker-entrypoint"]
 #   User        (unset -> root; the stock entrypoint drops to uid/gid 1000 'paseo' itself)
 #   WorkingDir  /workspace          Volume  /home/paseo          Port  6767/tcp
-#   Node        22.23.2  - satisfies claude >=22.0.0, pi >=22.19.0, codex >=16
+#   Node        22.23.3  - satisfies claude >=22.0.0, pi >=22.19.0, codex >=16
 #   Env         PASEO_HOME=/home/paseo/.paseo
 #               CLAUDE_CONFIG_DIR=/home/paseo/.claude
 #               CODEX_HOME=/home/paseo/.codex
@@ -25,15 +25,15 @@
 ARG UV_VERSION="0.11.32"
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uvbin
 
-FROM ghcr.io/getpaseo/paseo:0.10.1
+FROM ghcr.io/getpaseo/paseo:0.11.1
 
 # Agent CLI pins - identical to the pins in claude-code/Dockerfile so both surfaces run
 # the same agent builds. Because this stack keeps its credentials ISOLATED from the
 # claude-config volume, these can be bumped independently without risking shared state:
 # unlike a full-share setup, drift here cannot corrupt claude-dev.
-ARG CLAUDE_CODE_VERSION="2.1.284"
+ARG CLAUDE_CODE_VERSION="2.1.293"
 ARG CODEX_VERSION="0.159.2"
-ARG PI_VERSION="0.87.1"
+ARG PI_VERSION="1.1.0"
 
 # Python pin. 3.13 rather than 3.14 for the wider wheel coverage; bump when the packages
 # agents actually reach for have caught up. (UV_VERSION is declared above the first FROM,
@@ -55,11 +55,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && bwrap --version
 
-# Nothing here needs a compiler. Pi's only optional dependency (@mariozechner/clipboard) is
-# a native module, but it has no install script and ships prebuilt .node binaries as
-# platform-specific optional deps - verified present in an image built with no toolchain at
-# all. It is a Rust crate, so build-essential would not build it anyway. npm also treats
-# optionalDependencies failures as non-fatal, so this stays safe if upstream drops a prebuild.
+# Nothing here needs a compiler. Pi has no optional dependencies and no install scripts
+# (checked in npm metadata for 0.87.1 and 1.1.0), so nothing in this block builds native code.
 # The root-run Codex version probe creates tmp/arg0 with mode 0700. Return that
 # scratch tree to paseo so runtime helper aliases can be created (required by bwrap 0.8).
 RUN npm install -g \
@@ -73,7 +70,7 @@ RUN npm install -g \
     && npm cache clean --force
 
 # Guard against a base-image regression: Pi needs Node >=22.19.0 and the base currently
-# ships 22.23.2, so a future upstream downgrade inside the 22.x line would break Pi at
+# ships 22.23.3, so a future upstream downgrade inside the 22.x line would break Pi at
 # runtime with no build-time signal. Fail the build instead.
 RUN node -e 'const v=process.versions.node.split(".").map(Number); if (v[0]<22 || (v[0]===22 && v[1]<19)) { console.error("FATAL: base Node "+process.versions.node+" is below pi >=22.19.0"); process.exit(1); } console.log("Node "+process.versions.node+" OK for claude/codex/pi")'
 
@@ -102,7 +99,7 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
 # sqlite3, unzip, gnupg and build-essential are shared, while zip/less/vim/nano/tree/rsync/
 # wget/file/htop are additions here. Four of claude-code's are deliberately left out -
 # openssh-server and mosh (each a second ingress on a container reachable over a public
-# tunnel; Paseo already has web terminals), NodeSource nodejs (the base ships 22.23.1 and
+# tunnel; Paseo already has web terminals), NodeSource nodejs (the base ships 22.23.3 and
 # the build asserts >=22.19 for Pi) and apt python3 (would collide with the uv-managed 3.13
 # below and its masking assert).
 #
@@ -233,31 +230,6 @@ RUN apt-get update \
     && visudo -c \
     && sudo -n -U paseo -l >/dev/null \
     && echo "sudo: paseo has passwordless root"
-
-# Restore Claude thinking/reasoning in the Paseo timeline.
-#
-# Paseo builds the Claude thinking option as `{ type: "adaptive" }` with no `display`
-# field, so it inherits the Anthropic API default `display: "omitted"` - which on Opus 5,
-# Sonnet 5, Fable 5, Opus 4.8 and Opus 4.7 returns thinking blocks with an EMPTY
-# `thinking` string and only an encrypted `signature`. Paseo's extractor requires
-# non-empty text (dist .../providers/claude/agent.js, extractFragments), so it produces
-# zero `reasoning` timeline items and no thinking is ever rendered. Verified on this
-# image: `claude -p --effort high` alone yields 0 chars of thinking text, while adding
-# `--thinking-display summarized` yields 780 chars over 7 non-empty deltas.
-#
-# This is not configurable from outside: there is no daemon-level override in
-# persisted-config, the `autoExpandReasoning` UI setting is display-only, and the
-# per-agent `extra.claude` escape hatch does not carry to newly created agents.
-# Upstream has no issue filed and the dist is unchanged at both call sites through
-# 0.2.5 (checked against the @getpaseo/server npm tarball), so patch the published dist. Asserts on both sides so a base-image bump fails the
-# build loudly instead of silently reverting to no-thinking.
-RUN AGENT_JS=/usr/local/lib/node_modules/@getpaseo/server/dist/server/server/agent/providers/claude/agent.js \
-    && test -f "$AGENT_JS" \
-    && test "$(grep -c 'type: "adaptive" }' "$AGENT_JS")" = "2" \
-    && sed -i 's/{ type: "adaptive" }/{ type: "adaptive", display: "summarized" }/g' "$AGENT_JS" \
-    && test "$(grep -c 'display: "summarized"' "$AGENT_JS")" = "2" \
-    && node --check "$AGENT_JS" \
-    && echo "Patched Paseo Claude provider: thinking display=summarized"
 
 # Send credentials with the web app manifest request, so Cloudflare Access lets it through.
 #
