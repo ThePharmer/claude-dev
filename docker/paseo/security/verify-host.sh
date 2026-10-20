@@ -41,7 +41,8 @@ assert not int(status['CapBnd'].strip(), 16) & (1 << 21), 'Unexpected outer CAP_
 assert status['Seccomp'].strip() == '2', 'Outer seccomp filter is missing'
 assert Path('/proc/self/attr/current').read_text().strip() == 'paseo-codex-bwrap (enforce)', 'Wrong AppArmor profile'
 PYTHON
-# Older images contain root-owned tmp/arg0 from the build-time version probe.
+# Older images contain root-owned tmp/arg0 (tmp/arg0-linux from Codex 0.163) from the
+# build-time version probe.
 # Repair only the disposable container's scratch tree; no persistent home is mounted.
 if [ -d /home/paseo/.codex/tmp ]; then
   sudo -n chown -hR paseo:paseo /home/paseo/.codex/tmp
@@ -49,7 +50,7 @@ fi
 python3 - <<'PYTHON'
 import os
 from pathlib import Path
-scratch = Path('/home/paseo/.codex/tmp/arg0')
+scratch = Path('/home/paseo/.codex/tmp/arg0-linux')
 scratch.mkdir(parents=True, exist_ok=True)
 os.chmod(scratch, 0o700)
 assert scratch.stat().st_uid == os.getuid(), 'Codex helper directory has wrong owner'

@@ -50,7 +50,8 @@ no model/API calls. It checks outer seccomp/AppArmor, absence of outer `SYS_ADMI
 workspace writes, and denial of direct and symlink writes outside the workspace.
 For older images, the test repairs ownership of `/home/paseo/.codex/tmp` inside
 that disposable container before invoking Codex. The root-run build-time version
-probe left `tmp/arg0` owned by root with mode 0700, preventing helper alias creation.
+probe left `tmp/arg0` (`tmp/arg0-linux` since Codex 0.163) owned by root with mode
+0700, preventing helper alias creation.
 The Dockerfile now corrects that ownership for future images. Existing persistent
 home volumes may still need the one-time repair described below.
 The test uses Codex 0.154.0's `codex sandbox -P :workspace -C DIR -- COMMAND`
@@ -135,7 +136,8 @@ host test before deployment.
 ## Root-owned Codex helper directory
 
 If Codex warns `could not create PATH aliases: Operation not permitted`, inspect
-`/home/paseo/.codex/tmp/arg0`. Codex creates helper aliases under this directory and
+`/home/paseo/.codex/tmp/arg0-linux` (`tmp/arg0` before Codex 0.163; the old directory
+is left in place but no longer used). Codex creates helper aliases under this directory and
 sets its mode to 0700. When root owns it, the `paseo` user cannot initialize helpers.
 With bubblewrap 0.8, the later error can be `execvp codex-linux-sandbox: No such file
 or directory` because this version requires the helper alias compatibility path.
