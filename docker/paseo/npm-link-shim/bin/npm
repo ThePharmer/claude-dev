@@ -1,0 +1,3 @@
+#!/bin/sh
+# npm-link-shim entry point; see ../shim.mjs. Put this directory first on PATH.
+exec node "$(dirname "$(readlink -f "$0")")/../shim.mjs" "$@"
