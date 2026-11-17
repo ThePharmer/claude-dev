@@ -4,11 +4,11 @@
 # so this child image adds Claude Code, Codex and Pi to the official base.
 #
 # Base image facts below are read from the published image config of
-# ghcr.io/getpaseo/paseo:0.15.4 (not assumed):
+# ghcr.io/getpaseo/paseo:0.16.0 (not assumed):
 #   Entrypoint  ["/usr/bin/tini", "--", "/usr/local/bin/paseo-docker-entrypoint"]
 #   User        (unset -> root; the stock entrypoint drops to uid/gid 1000 'paseo' itself)
 #   WorkingDir  /workspace          Volume  /home/paseo          Port  6767/tcp
-#   Node        22.23.4  - satisfies claude >=22.0.0, pi >=22.19.0, codex >=16
+#   Node        22.23.5  - satisfies claude >=22.0.0, pi >=22.19.0, codex >=16
 #   Env         PASEO_HOME=/home/paseo/.paseo
 #               CLAUDE_CONFIG_DIR=/home/paseo/.claude
 #               CODEX_HOME=/home/paseo/.codex
@@ -25,15 +25,15 @@
 ARG UV_VERSION="0.11.32"
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uvbin
 
-FROM ghcr.io/getpaseo/paseo:0.15.4
+FROM ghcr.io/getpaseo/paseo:0.16.0
 
 # Agent CLI pins - identical to the pins in claude-code/Dockerfile so both surfaces run
 # the same agent builds. Because this stack keeps its credentials ISOLATED from the
 # claude-config volume, these can be bumped independently without risking shared state:
 # unlike a full-share setup, drift here cannot corrupt claude-dev.
-ARG CLAUDE_CODE_VERSION="2.1.321"
-ARG CODEX_VERSION="0.167.0"
-ARG PI_VERSION="1.5.0"
+ARG CLAUDE_CODE_VERSION="2.1.326"
+ARG CODEX_VERSION="0.169.0"
+ARG PI_VERSION="1.5.2"
 
 # Python pin. 3.13 rather than 3.14 for the wider wheel coverage; bump when the packages
 # agents actually reach for have caught up. (UV_VERSION is declared above the first FROM,
@@ -56,7 +56,7 @@ RUN apt-get update \
     && bwrap --version
 
 # Nothing here needs a compiler. Pi has no optional dependencies and no install scripts
-# (checked in npm metadata for 0.87.1, 1.1.0, 1.3.0, 1.4.0 and 1.5.0), so nothing in this block builds native code.
+# (checked in npm metadata for 0.87.1, 1.1.0, 1.3.0, 1.4.0, 1.5.0 and 1.5.2), so nothing in this block builds native code.
 # The root-run Codex version probe creates tmp/arg0-linux (tmp/arg0 before 0.163) with
 # mode 0700. Return that scratch tree to paseo so runtime helper aliases can be created
 # (required by bwrap 0.8).
@@ -71,7 +71,7 @@ RUN npm install -g \
     && npm cache clean --force
 
 # Guard against a base-image regression: Pi needs Node >=22.19.0 and the base currently
-# ships 22.23.4, so a future upstream downgrade inside the 22.x line would break Pi at
+# ships 22.23.5, so a future upstream downgrade inside the 22.x line would break Pi at
 # runtime with no build-time signal. Fail the build instead.
 RUN node -e 'const v=process.versions.node.split(".").map(Number); if (v[0]<22 || (v[0]===22 && v[1]<19)) { console.error("FATAL: base Node "+process.versions.node+" is below pi >=22.19.0"); process.exit(1); } console.log("Node "+process.versions.node+" OK for claude/codex/pi")'
 
@@ -100,7 +100,7 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
 # sqlite3, unzip, gnupg and build-essential are shared, while zip/less/vim/nano/tree/rsync/
 # wget/file/htop are additions here. Four of claude-code's are deliberately left out -
 # openssh-server and mosh (each a second ingress on a container reachable over a public
-# tunnel; Paseo already has web terminals), NodeSource nodejs (the base ships 22.23.4 and
+# tunnel; Paseo already has web terminals), NodeSource nodejs (the base ships 22.23.5 and
 # the build asserts >=22.19 for Pi) and apt python3 (would collide with the uv-managed 3.13
 # below and its masking assert).
 #
