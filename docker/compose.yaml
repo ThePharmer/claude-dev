@@ -1,10 +1,11 @@
-# Paseo, deployed as a Portainer stack. Name the stack "paseo" (volume is paseo_paseo-home).
+# Paseo, deployed as a Portainer stack. Keep the stack name "paseo" (volume is paseo_paseo-home)
+# even though the container is "pharm-dev"; renaming the stack orphans the volume.
 # Tearing down: never use '-v'. It destroys the volume holding every agent login.
 
 services:
   paseo:
-    image: ghcr.io/thepharmer/paseo-agents:${PASEO_IMAGE_TAG:-latest}
-    container_name: paseo
+    image: ghcr.io/thepharmer/pharm-dev:${PASEO_IMAGE_TAG:-latest}
+    container_name: pharm-dev
     restart: unless-stopped
     # AppArmor is loaded on the Docker host.
     # The seccomp file must also be copied into Portainer at this path.

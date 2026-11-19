@@ -67,7 +67,7 @@ The host setup is required even though bubblewrap is already installed in the im
 The image is **built by CI, not by the stack**. Portainer does not reliably build images from
 a compose file — its docs state that "building images via docker-compose ... is not fully
 implemented" — so there is deliberately no `build:` directive here.
-`.github/workflows/docker-image.yml` publishes `ghcr.io/thepharmer/paseo-agents`.
+`.github/workflows/docker-image.yml` publishes `ghcr.io/thepharmer/pharm-dev`.
 
 1. **Wait for CI.** Pushing to `main` or `paseo` builds the image. Branch builds are tagged
    with the branch name; only `main` moves `:latest`.
@@ -88,11 +88,11 @@ implemented" — so there is deliberately no `build:` directive here.
 4. **Deploy**, then authenticate each agent once (persists on the `paseo-home` volume):
 
    ```bash
-   docker exec -it --user paseo paseo claude
-   docker exec -it --user paseo paseo codex
-   docker exec -it --user paseo paseo pi
-   docker exec -it --user paseo paseo gh auth login   # so agents can open PRs
-   docker exec -u paseo paseo paseo ls      # confirm Paseo sees all three
+   docker exec -it --user paseo pharm-dev claude
+   docker exec -it --user paseo pharm-dev codex
+   docker exec -it --user paseo pharm-dev pi
+   docker exec -it --user paseo pharm-dev gh auth login   # so agents can open PRs
+   docker exec -u paseo pharm-dev paseo ls      # confirm Paseo sees all three
    ```
 
    `gh` writes to `$XDG_CONFIG_HOME/gh` (`/home/paseo/.config/gh`), which is on the
@@ -311,13 +311,13 @@ label lives only in the Portainer stack variable `PASEO_RELAY_PUBLIC_ENDPOINT`.
    ```bash
    curl -s http://127.0.0.1:4000/ready                                 # 200
    curl -s -o /dev/null -w '%{http_code}\n' https://<label>.example.com/ready   # 404 (catch-all)
-   docker logs paseo 2>&1 | grep relay_control_connected               # daemon reached the relay
+   docker logs pharm-dev 2>&1 | grep relay_control_connected               # daemon reached the relay
    ```
 
 3. Pair the phone:
 
    ```bash
-   docker exec -it --user paseo paseo paseo daemon pair
+   docker exec -it --user paseo pharm-dev paseo daemon pair
    ```
 
    It prints a QR and link carrying `<label>.example.com:443` with TLS on (the public

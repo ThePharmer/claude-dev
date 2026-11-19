@@ -21,7 +21,7 @@ cmp "$profile_dir/paseo-codex-bwrap" /etc/apparmor.d/paseo-codex-bwrap || {
 # Default to the exact image already running, not a mutable latest tag.
 image_ref=${1:-}
 if [[ -z $image_ref ]]; then
-  image_ref=$(docker inspect --format '{{.Image}}' paseo)
+  image_ref=$(docker inspect --format '{{.Image}}' pharm-dev)
 fi
 
 docker run --rm -i --pull=never \

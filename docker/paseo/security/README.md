@@ -145,7 +145,7 @@ or directory` because this version requires the helper alias compatibility path.
 For an existing persistent home volume, repair just the scratch tree once:
 
 ```bash
-sudo docker exec --user root paseo chown -hR paseo:paseo /home/paseo/.codex/tmp
+sudo docker exec --user root pharm-dev chown -hR paseo:paseo /home/paseo/.codex/tmp
 ```
 
 The `-h` option changes symlink ownership without following helper links to the

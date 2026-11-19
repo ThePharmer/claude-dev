@@ -104,7 +104,7 @@ jobs:
             fi
           }
           for pair in "claude-dev:claude_dev:${{ steps.ctx.outputs.claude_dev }}" \
-                      "paseo-agents:paseo:${{ steps.ctx.outputs.paseo }}" \
+                      "pharm-dev:paseo:${{ steps.ctx.outputs.paseo }}" \
                       "paseo-relay:relay:${{ steps.ctx.outputs.relay }}"; do
             IMG=${pair%%:*}; REST=${pair#*:}; KEY=${REST%%:*}; CTX=${REST#*:}
             R=$(check "$IMG" "$CTX")
@@ -171,7 +171,7 @@ jobs:
           docker run --rm --entrypoint claude \
             "$REGISTRY/$OWNER/claude-dev:ctx-${{ needs.plan.outputs.claude_dev_ctx }}" --version
 
-  paseo-agents:
+  pharm-dev:
     needs: plan
     runs-on: ubuntu-latest
     permissions:
@@ -195,8 +195,8 @@ jobs:
           set -euo pipefail
           {
             echo "list<<EOF"
-            for n in $NAMES; do echo "$REGISTRY/$OWNER/paseo-agents:$n"; done
-            echo "$REGISTRY/$OWNER/paseo-agents:ctx-$CTX"
+            for n in $NAMES; do echo "$REGISTRY/$OWNER/pharm-dev:$n"; done
+            echo "$REGISTRY/$OWNER/pharm-dev:ctx-$CTX"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -206,8 +206,8 @@ jobs:
           context: ./docker/paseo
           push: true
           tags: ${{ steps.t.outputs.list }}
-          cache-from: type=gha,scope=paseo-agents
-          cache-to: type=gha,scope=paseo-agents,mode=max
+          cache-from: type=gha,scope=pharm-dev
+          cache-to: type=gha,scope=pharm-dev,mode=max
 
       - if: needs.plan.outputs.build_paseo != 'true'
         name: Retag existing image
@@ -217,14 +217,14 @@ jobs:
         run: |
           set -euo pipefail
           ARGS=""
-          for n in $NAMES; do ARGS="$ARGS -t $REGISTRY/$OWNER/paseo-agents:$n"; done
-          docker buildx imagetools create $ARGS "$REGISTRY/$OWNER/paseo-agents:ctx-$CTX"
+          for n in $NAMES; do ARGS="$ARGS -t $REGISTRY/$OWNER/pharm-dev:$n"; done
+          docker buildx imagetools create $ARGS "$REGISTRY/$OWNER/pharm-dev:ctx-$CTX"
           echo "reused ctx-$CTX (no rebuild)"
 
       - if: needs.plan.outputs.build_paseo == 'true'
         name: Smoke test
         run: |
-          IMAGE="$REGISTRY/$OWNER/paseo-agents:ctx-${{ needs.plan.outputs.paseo_ctx }}"
+          IMAGE="$REGISTRY/$OWNER/pharm-dev:ctx-${{ needs.plan.outputs.paseo_ctx }}"
           docker run --rm --entrypoint claude "$IMAGE" --version
           docker run --rm --entrypoint codex  "$IMAGE" --version
           docker run --rm --entrypoint pi     "$IMAGE" --version

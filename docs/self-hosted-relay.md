@@ -97,7 +97,7 @@ moves with their Elixir/Erlang upgrades.
 
 In `docker-image.yml`, extend `plan` with a `relay` content tag
 (`git rev-parse HEAD:docker/paseo-relay`), add it to the "which images exist"
-loop, and copy the `paseo-agents` job as `paseo-relay` with
+loop, and copy the `pharm-dev` job as `paseo-relay` with
 `context: ./docker/paseo-relay`. Smoke test:
 
 ```bash
@@ -201,13 +201,13 @@ check on this path, pairing link is a non-expiring bearer credential.
 ```bash
 curl -s http://127.0.0.1:4000/ready                   # 200 with a small JSON body
 curl -s -o /dev/null -w '%{http_code}\n' https://<label>.thepharmer.dev/ready   # expect 404 (catch-all)
-docker logs paseo 2>&1 | grep relay_control_connected # daemon reached the relay
+docker logs pharm-dev 2>&1 | grep relay_control_connected # daemon reached the relay
 ```
 
 4. Pair the phone:
 
 ```bash
-docker exec -it --user paseo paseo paseo daemon pair
+docker exec -it --user paseo pharm-dev paseo daemon pair
 ```
 
    Scan the QR with the Paseo app. The offer carries
