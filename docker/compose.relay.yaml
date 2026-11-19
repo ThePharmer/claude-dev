@@ -1,0 +1,61 @@
+# Opt-in self-hosted Paseo relay for the phone app. Layer it on top of compose.yaml:
+#   docker compose -f compose.yaml -f compose.relay.yaml up -d
+# In the Portainer web editor, paste these blocks into the stack instead: the env lines
+# into the existing paseo service, and the paseo-relay service alongside it.
+# Runbook, Cloudflare setup and security notes: docs/self-hosted-relay.md and the "Relay"
+# section of docker/paseo/README.md.
+
+services:
+  paseo:
+    environment:
+      # Relay sessions skip PASEO_PASSWORD and PASEO_HOSTNAMES; the pairing link is the
+      # credential. Treat the QR like the password. Revoking one phone revokes all.
+      PASEO_RELAY_ENABLED: "true"
+      PASEO_RELAY_ENDPOINT: paseo-relay:4000
+      PASEO_RELAY_USE_TLS: "false"
+      # Public endpoint advertised in the pairing QR: the relay's tunnel hostname.
+      # Kept out of the repo on purpose; set it in the Portainer stack env.
+      PASEO_RELAY_PUBLIC_ENDPOINT: ${PASEO_RELAY_PUBLIC_ENDPOINT:?PASEO_RELAY_PUBLIC_ENDPOINT must be set (host:443 of the relay's tunnel hostname)}
+      PASEO_RELAY_PUBLIC_USE_TLS: "true"
+    depends_on:
+      paseo-relay:
+        condition: service_healthy
+
+  paseo-relay:
+    # Upstream's published image, pinned by digest. Upstream's `latest` does not reliably
+    # follow their main, so bump by picking the sha-<commit> tag you want and its digest.
+    # This one is getpaseo/paseo-relay main at 5f4b763 (2026-10-28).
+    # Plain HTTP; TLS terminates at Cloudflare. Only /ws may be public: the tunnel
+    # hostname rule must 404 everything else so /health, /ready, /metrics stay LAN-only.
+    image: ghcr.io/getpaseo/paseo-relay:sha-5f4b7636af41a85ef20200c0b7e99dd1ea2ee1f2@sha256:ad0bda0e2133f271a7ccfeb57e9bb0208f2fc81a2672de9df07b2400fa8eb61e
+    container_name: paseo-relay
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      PASEO_RELAY_HOST: 0.0.0.0
+      PASEO_RELAY_PORT: "4000"
+      # 384 MiB of the 512 MiB cap: the relay sheds sockets instead of being OOM-killed.
+      PASEO_RELAY_MEMORY_WATERMARK_BYTES: "402653184"
+    mem_limit: 512m
+    stop_grace_period: 30s
+    healthcheck:
+      # Image has bash but no curl. /ready is 503 until the node accepts work.
+      test:
+        - CMD
+        - bash
+        - -c
+        - 'exec 3<>/dev/tcp/127.0.0.1/4000; printf "GET /ready HTTP/1.0\r\n\r\n" >&3; head -n1 <&3 | grep -q " 200 "'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -11,8 +11,9 @@ Originally forked from [nezhar/claude-container](https://github.com/nezhar/claud
 with pinned agent CLIs, `uv`, a managed Python and the usual dev tools. Deployed as a Portainer
 stack from `docker/compose.yaml`.
 
-The optional self-hosted relay is not built here. The `relay` branch runs upstream's published
-`ghcr.io/getpaseo/paseo-relay` image, pinned by digest; see `docs/self-hosted-relay.md`.
+The optional self-hosted relay is not built here. `docker/compose.relay.yaml` adds it on top of
+the stack using upstream's published `ghcr.io/getpaseo/paseo-relay` image, pinned by digest; see
+`docs/self-hosted-relay.md`.
 
 Setup, credentials, security profiles and troubleshooting are in
 [`docker/paseo/README.md`](docker/paseo/README.md).
@@ -30,7 +31,8 @@ Setup, credentials, security profiles and troubleshooting are in
 ## Repo layout
 
 ```
-docker/compose.yaml     The Paseo stack (Portainer)
-docker/paseo/           pharm-dev image: Dockerfile, entrypoint, security profiles
-docs/                   Relay runbook and design notes
+docker/compose.yaml         The Paseo stack (Portainer)
+docker/compose.relay.yaml   Opt-in self-hosted relay, layered on top
+docker/paseo/               pharm-dev image: Dockerfile, entrypoint, security profiles
+docs/                       Relay runbook and design notes
 ```

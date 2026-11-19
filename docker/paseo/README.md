@@ -72,7 +72,7 @@ implemented" — so there is deliberately no `build:` directive here.
    | `PASEO_PASSWORD` | yes | High-entropy. Deploy fails immediately if unset. |
    | `PASEO_HOSTNAMES` | for tunnel | DNS name(s) Paseo is reached by. IPs and localhost are allowed by default. |
    | `PHARM_DEV_IMAGE_TAG` | no | Defaults to `latest`. Set to a branch name to run a manually dispatched branch build. |
-   | `PASEO_RELAY_PUBLIC_ENDPOINT` | relay branch only | Not read on this branch. Required only by the compose on the `relay` branch; see "Relay" below. |
+   | `PASEO_RELAY_PUBLIC_ENDPOINT` | with relay only | Required only when `../compose.relay.yaml` is layered on; see "Relay" below. |
 
 4. **Deploy**, then authenticate each agent once (persists on the `paseo-home` volume):
 
@@ -234,11 +234,11 @@ hook or config knob for the head. Notes for whoever touches it next:
 ## Relay: self-hosted, for the phone app (on hold)
 
 **Status:** not deployed. The phone connects through Cloudflare Access with service-token
-headers using the app build from getpaseo/paseo#4290, so `../compose.yaml` on this branch keeps
-`PASEO_RELAY_ENABLED: "false"` and has no relay service. The full relay stack (compose service,
-runbook below) is staged on the `relay` branch, using upstream's published
-`ghcr.io/getpaseo/paseo-relay` image pinned by digest. Merge that branch if the header path ever
-stops being viable.
+headers using the app build from getpaseo/paseo#4290, so `../compose.yaml` keeps
+`PASEO_RELAY_ENABLED: "false"` and has no relay service. The relay is opt-in through
+`../compose.relay.yaml`, which adds the `paseo-relay` service (upstream's published
+`ghcr.io/getpaseo/paseo-relay` image, pinned by digest) and the daemon's relay settings. Layer it
+on if the header path ever stops being viable.
 
 The stack runs its own copy of [getpaseo/paseo-relay](https://github.com/getpaseo/paseo-relay)
 as the `paseo-relay` service. The daemon holds an **outbound** connection to it over the
