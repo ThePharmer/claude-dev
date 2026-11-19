@@ -2,10 +2,9 @@ name: Build and Push Images
 
 on:
   push:
-    # paseo is the single working branch; main is the released line. Everything else
-    # (the old paseo-test / t3code-test / paseo-pi-sidecar experiments) is gone, so
-    # these two are the only refs that produce images.
-    branches: [main, paseo]
+    # main is the only branch that publishes on push. Other branches (e.g. relay) build
+    # only via workflow_dispatch, tagged with the branch name; only main moves :latest.
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
     inputs:

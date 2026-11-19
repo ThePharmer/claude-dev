@@ -69,8 +69,8 @@ a compose file — its docs state that "building images via docker-compose ... i
 implemented" — so there is deliberately no `build:` directive here.
 `.github/workflows/docker-image.yml` publishes `ghcr.io/thepharmer/pharm-dev`.
 
-1. **Wait for CI.** Pushing to `main` or `paseo` builds the image. Branch builds are tagged
-   with the branch name; only `main` moves `:latest`.
+1. **Wait for CI.** Pushing to `main` builds the image and moves `:latest`. Other branches
+   build only when run manually (workflow_dispatch) and are tagged with the branch name.
 2. **Create the stack** in Portainer from this repo, compose path `docker/compose.yaml`.
    **Name it `paseo`.** Compose namespaces volumes by project, so the volume resolves to
    `paseo_paseo-home` only under that name — renaming the stack silently creates an empty
@@ -82,7 +82,7 @@ implemented" — so there is deliberately no `build:` directive here.
    |---|---|---|
    | `PASEO_PASSWORD` | yes | High-entropy. Deploy fails immediately if unset. |
    | `PASEO_HOSTNAMES` | for tunnel | DNS name(s) Paseo is reached by. IPs and localhost are allowed by default. |
-   | `PHARM_DEV_IMAGE_TAG` | no | Defaults to `latest`. Set to `paseo` to run the branch build. |
+   | `PHARM_DEV_IMAGE_TAG` | no | Defaults to `latest`. Set to a branch name to run a manually dispatched branch build. |
    | `PASEO_RELAY_PUBLIC_ENDPOINT` | relay branch only | Not read on this branch. Required only by the compose on the `relay` branch; see "Relay" below. |
 
 4. **Deploy**, then authenticate each agent once (persists on the `paseo-home` volume):

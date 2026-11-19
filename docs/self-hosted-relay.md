@@ -192,8 +192,8 @@ check on this path, pairing link is a non-expiring bearer credential.
 
 ## 5. Deploy and pair
 
-1. Merge the repo changes to `paseo`, wait for CI to publish
-   `ghcr.io/thepharmer/paseo-relay:paseo`.
+1. Merge the repo changes to `main`, wait for CI to publish
+   `ghcr.io/thepharmer/paseo-relay:latest`.
 2. Portainer: set `PASEO_RELAY_PUBLIC_ENDPOINT` if not using the default,
    re-pull and update the `paseo` stack. Never `-v`.
 3. Verify from the host:
