@@ -3,6 +3,11 @@
 Status: plan, not yet applied. Written 2026-09-03 against Paseo v0.7.2 and
 getpaseo/paseo-relay main (3fc41c9, 2026-08-22).
 
+Update 2026-11-19: upstream now publishes `ghcr.io/getpaseo/paseo-relay` (getpaseo/paseo-relay#10,
+merged 2026-10-28). Sections 3a and 3b are superseded: this repo no longer builds a relay image,
+and the stack uses `ghcr.io/getpaseo/paseo-relay:sha-5f4b7636af41a85ef20200c0b7e99dd1ea2ee1f2@sha256:ad0bda0e2133f271a7ccfeb57e9bb0208f2fc81a2672de9df07b2400fa8eb61e`
+(upstream `main` at 5f4b763). The runtime settings used in 3c are unchanged in that release.
+
 Goal: the phone app reaches the daemon with nothing installed on the phone and
 nothing routed through Paseo's own relay, while the web UI keeps its Cloudflare
 Access gate. Long term, restore custom direct-connection headers upstream so
@@ -112,7 +117,7 @@ Add a service in the same stack so the daemon reaches it by service name.
 
 ```yaml
   paseo-relay:
-    image: ghcr.io/thepharmer/paseo-relay:${PHARM_DEV_IMAGE_TAG:-latest}
+    image: ghcr.io/getpaseo/paseo-relay:sha-5f4b7636af41a85ef20200c0b7e99dd1ea2ee1f2@sha256:ad0bda0e2133f271a7ccfeb57e9bb0208f2fc81a2672de9df07b2400fa8eb61e
     container_name: paseo-relay
     restart: unless-stopped
     ports:
@@ -192,8 +197,8 @@ check on this path, pairing link is a non-expiring bearer credential.
 
 ## 5. Deploy and pair
 
-1. Merge the repo changes to `main`, wait for CI to publish
-   `ghcr.io/thepharmer/paseo-relay:latest`.
+1. Merge the `relay` branch to `main`. The relay image comes from upstream, so there is
+   no relay build to wait for.
 2. Portainer: set `PASEO_RELAY_PUBLIC_ENDPOINT` if not using the default,
    re-pull and update the `paseo` stack. Never `-v`.
 3. Verify from the host:

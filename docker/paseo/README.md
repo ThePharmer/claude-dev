@@ -236,8 +236,9 @@ hook or config knob for the head. Notes for whoever touches it next:
 **Status:** not deployed. The phone connects through Cloudflare Access with service-token
 headers using the app build from getpaseo/paseo#4290, so `../compose.yaml` on this branch keeps
 `PASEO_RELAY_ENABLED: "false"` and has no relay service. The full relay stack (compose service,
-image, runbook below) is staged on the `relay` branch and the image is already published as
-`ghcr.io/thepharmer/paseo-relay`. Merge that branch if the header path ever stops being viable.
+runbook below) is staged on the `relay` branch, using upstream's published
+`ghcr.io/getpaseo/paseo-relay` image pinned by digest. Merge that branch if the header path ever
+stops being viable.
 
 The stack runs its own copy of [getpaseo/paseo-relay](https://github.com/getpaseo/paseo-relay)
 as the `paseo-relay` service. The daemon holds an **outbound** connection to it over the
@@ -317,9 +318,10 @@ label lives only in the Portainer stack variable `PASEO_RELAY_PUBLIC_ENDPOINT`.
 
 ### Upgrading the relay
 
-The image is built from `../paseo-relay/Dockerfile`, which pins an upstream commit. Bump
-`PASEO_RELAY_REF` (and the base image tags, copied from upstream's Dockerfile at that
-commit), push, wait for CI, re-pull the stack. The pairing does not change across relay
+The stack uses upstream's `ghcr.io/getpaseo/paseo-relay`, pinned as `sha-<commit>@sha256:<digest>`.
+Upstream's `latest` tag does not reliably follow their `main`, so pin the `sha-<commit>` image of
+the upstream commit you want, using the digest the registry reports for it. Then re-pull the
+stack. The pairing does not change across relay
 upgrades; keypair and `server-id` live on the volume.
 
 ### Rollback
