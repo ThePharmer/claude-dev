@@ -1,6 +1,6 @@
 # Paseo — standalone stack
 
-Paseo daemon + web UI, running as its **own Compose stack** next to `claude-code`, reached
+Paseo daemon + web UI, running as its **own Compose stack**, reached
 through the Cloudflare tunnel at `paseo.example.com`.
 
 This stack briefly ran a second `t3code` service for a head-to-head evaluation. Paseo won;
@@ -9,20 +9,19 @@ the service and its image are gone. The scorecard is kept as a record of the rea
 
 Paseo ships no agent of its own — it orchestrates whatever agent CLIs are on `PATH`, and it
 runs them as **local subprocesses**. That's why this is a child image with Claude Code,
-Codex and Pi baked in, rather than something that talks to the `claude-code` container.
+Codex and Pi baked in.
 
-- **`Dockerfile`** — `ghcr.io/getpaseo/paseo:0.2.5` plus the three agent CLIs, pinned to the
-  same versions as `claude-code/Dockerfile`, plus `uv` and a managed Python (see below).
+- **`Dockerfile`** — `ghcr.io/getpaseo/paseo` plus the three agent CLIs at pinned versions,
+  plus `uv` and a managed Python (see below).
 - **`entrypoint.sh`** — password-secret bridge; fails closed (see below).
 - **`bashrc.sh`** — interactive-shell defaults for the web terminals; installed to
   `/etc/paseo-bashrc.sh` rather than a home directory (see troubleshooting).
 - **`../compose.yaml`** — the stack itself, one level up, kept there from when it defined
   more than one service.
 
-## Credentials: ISOLATED (no share with claude-dev)
+## Credentials and persistence
 
-This stack deliberately shares **nothing** with the `claude-config` volume. The base image
-already points every agent config path under `/home/paseo`:
+The base image already points every agent config path under `/home/paseo`:
 
 ```
 PASEO_HOME=/home/paseo/.paseo
@@ -31,23 +30,13 @@ CODEX_HOME=/home/paseo/.codex
 XDG_{CONFIG,DATA,STATE,CACHE}_HOME=/home/paseo/...
 ```
 
-So the single `paseo-home` volume is the whole persistence story — Paseo's state *and* all
+So the single `paseo-home` volume is the whole persistence story: Paseo's state and all
 three agents' logins. Pi has no dedicated env var but inherits `HOME` and the `XDG_*` dirs,
-so its state lands there too. No symlinks or config-dir overrides are needed.
+so its state lands there too. No symlinks or config-dir overrides are needed. Tearing the
+stack down with `-v` destroys every agent login.
 
-Consequences:
-
-- **You log in once per agent, inside this container.** Separate from claude-dev's logins.
-- **Separate transcript history.** Paseo's Claude does not see claude-dev's `/claude/projects`.
-- **Blast radius is contained.** This container is reachable over a public tunnel and cannot
-  read claude-dev's `gh` token, cloudcli auth DB, or Claude credentials.
-- **Teardown carries no risk to claude-dev.** Nothing here touches `claude-config`. Note
-  that `-v` would still destroy *this* stack's own agent logins — so tear down without `-v`
-  unless you mean to re-authenticate everything.
-
-The only thing shared is the code: the `/srv` subtrees are bind-mounted at the **same
-absolute paths** both containers use, so agent cwd, git worktree paths and absolute paths
-stay consistent.
+The `/srv` subtrees are bind-mounted at the **same absolute paths** as on the host, so agent
+cwd, git worktree paths and absolute paths stay consistent.
 
 Note "subtrees", not `/srv` itself — `../compose.yaml` mounts a named list and nothing else,
 so the rest of the host's `/srv` is not visible here. Because `/srv` itself is unmounted it is
@@ -107,8 +96,8 @@ implemented" — so there is deliberately no `build:` directive here.
    service token, then enter `CF-Access-Client-Id` and `CF-Access-Client-Secret` as custom
    headers under Direct connection > Advanced. The relay alternative is on hold; see below.
 
-To upgrade later, re-pull the stack in Portainer after CI publishes a new tag — the same
-rebuild-to-upgrade model `claude-code` uses.
+To upgrade later, re-pull the stack in Portainer after CI publishes a new tag. Agents
+cannot self-update inside the container.
 
 ## Python and uv
 
@@ -151,7 +140,7 @@ image at all** — the packages would land where nothing can import them.
 
 Two things that will bite whoever edits this next:
 
-- **`--break-system-packages` is required, not copied cargo-cult from claude-code.** uv writes
+- **`--break-system-packages` is required, not cargo-cult.** uv writes
   a PEP 668 `EXTERNALLY-MANAGED` marker into its *own* managed interpreters, so without the
   flag `uv pip install` refuses and the build dies. Verified against the pinned uv 0.11.32 and
   CPython 3.13.14. (This is the opposite of what you might assume — the flag reads like it
@@ -172,15 +161,13 @@ Deliberately **not** installed, each for a specific reason:
 | `openssh-server`, `mosh` | Each is a second ingress on a container reachable over a public tunnel. Paseo already has web terminals. |
 | NodeSource `nodejs` | The base ships 22.23.4 and the Dockerfile asserts ≥22.19 for Pi. |
 | apt `python3` | Would collide with the uv-managed 3.13 and its masking assert. |
-| `cloudcli` | That is claude-dev's own web UI, which this stack replaces. |
-| `ffmpeg` + `faster-whisper` | 449 MB / 189 packages (measured), and ~95 MB of wheels — 200-250 MB installed (estimated). ffmpeg exists in claude-code to extract audio for local transcription; with `faster-whisper` out, nothing here needs it. Caption and transcript extraction need neither. **Re-add them together or not at all.** |
+| `ffmpeg` + `faster-whisper` | 449 MB / 189 packages (measured), and ~95 MB of wheels — 200-250 MB installed (estimated). ffmpeg is only needed to extract audio for local transcription; with `faster-whisper` out, nothing here needs it. Caption and transcript extraction need neither. **Re-add them together or not at all.** |
 
 ## Passwordless sudo: granted, with the mounts narrowed to pay for it
 
 The image gives `paseo` `NOPASSWD: ALL`. That is the dev-container default —
 `devcontainers/features/common-utils` writes the identical line for every non-root user it
-creates, so every `mcr.microsoft.com/devcontainers/*` image has it — and `claude-code` goes
-further still, running as root outright via `user: root`.
+creates, so every `mcr.microsoft.com/devcontainers/*` image has it.
 
 What it actually buys an attacker who already has code execution as uid 1000:
 
@@ -359,8 +346,8 @@ deliberately *not* a `~/.bashrc`: `/home/paseo` is a volume, so a home-directory
 masked on existing volumes and invisible to fresh ones.
 
 **Permissions on `/srv`.** Paseo is fixed at uid/gid 1000 and the mounted `/srv` subtrees are
-already owned by 1000, matching `claude-code`. Don't run `claude-code` with `USER_UID != 1000`
-— it would rewrite ownership out from under this container.
+already owned by 1000. Anything else that rewrites their ownership to another uid breaks
+file access here.
 
 **"Read-only file system" writing to documents/calibre/media.** Working as intended — those
 three are mounted `:ro`. `sudo` will not help: read-only is a kernel mount flag and lifting it
@@ -376,5 +363,3 @@ to write there, change the mount in `../compose.yaml`.
 - Re-check the `XDG_*` paths specifically. If a base bump moves `XDG_DATA_HOME` off
   `/home/paseo`, the Python block's masking assert still passes but its reasoning no longer
   applies; if it moves *onto* a new volume path, the assert is what will catch it.
-- Keep the agent pins here in sync with `claude-code/Dockerfile` so both surfaces run the same
-  builds. Drift is safe (state is isolated) but confusing.

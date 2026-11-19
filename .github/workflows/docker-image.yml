@@ -38,10 +38,8 @@ jobs:
       packages: read
     outputs:
       tag_names: ${{ steps.tags.outputs.names }}
-      claude_dev_ctx: ${{ steps.ctx.outputs.claude_dev }}
       paseo_ctx: ${{ steps.ctx.outputs.paseo }}
       relay_ctx: ${{ steps.ctx.outputs.relay }}
-      build_claude_dev: ${{ steps.need.outputs.claude_dev }}
       build_paseo: ${{ steps.need.outputs.paseo }}
       build_relay: ${{ steps.need.outputs.relay }}
     steps:
@@ -59,17 +57,15 @@ jobs:
         name: Compute content tags
         run: |
           set -euo pipefail
-          CLAUDE_DEV=$(git rev-parse "HEAD:claude-code" | cut -c1-12)
           PASEO=$(git rev-parse "HEAD:docker/paseo" | cut -c1-12)
           RELAY=$(git rev-parse "HEAD:docker/paseo-relay" | cut -c1-12)
-          echo "claude_dev=$CLAUDE_DEV" >> "$GITHUB_OUTPUT"
           echo "paseo=$PASEO"           >> "$GITHUB_OUTPUT"
           echo "relay=$RELAY"           >> "$GITHUB_OUTPUT"
-          echo "content tags: claude-dev=$CLAUDE_DEV paseo=$PASEO relay=$RELAY"
+          echo "content tags: pharm-dev=$PASEO paseo-relay=$RELAY"
 
       # Moving tag is 'latest' only on main, otherwise the branch or git-tag name. Without
-      # that guard a push to any branch would overwrite claude-dev:latest, which the
-      # production claude-code stack deploys from.
+      # that guard a dispatched branch build would overwrite pharm-dev:latest, which the
+      # live Paseo stack deploys from.
       - id: tags
         name: Assemble tag list
         run: |
@@ -102,73 +98,13 @@ jobs:
               echo true
             fi
           }
-          for pair in "claude-dev:claude_dev:${{ steps.ctx.outputs.claude_dev }}" \
-                      "pharm-dev:paseo:${{ steps.ctx.outputs.paseo }}" \
+          for pair in "pharm-dev:paseo:${{ steps.ctx.outputs.paseo }}" \
                       "paseo-relay:relay:${{ steps.ctx.outputs.relay }}"; do
             IMG=${pair%%:*}; REST=${pair#*:}; KEY=${REST%%:*}; CTX=${REST#*:}
             R=$(check "$IMG" "$CTX")
             echo "$KEY=$R" >> "$GITHUB_OUTPUT"
             echo "$IMG (ctx-$CTX): build=$R"
           done
-
-  claude-dev:
-    needs: plan
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - id: t
-        name: Expand tags
-        env:
-          NAMES: ${{ needs.plan.outputs.tag_names }}
-          CTX: ${{ needs.plan.outputs.claude_dev_ctx }}
-        run: |
-          set -euo pipefail
-          {
-            echo "list<<EOF"
-            for n in $NAMES; do echo "$REGISTRY/$OWNER/claude-dev:$n"; done
-            echo "$REGISTRY/$OWNER/claude-dev:ctx-$CTX"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - if: needs.plan.outputs.build_claude_dev == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: ./claude-code
-          push: true
-          tags: ${{ steps.t.outputs.list }}
-          cache-from: type=gha,scope=claude-dev
-          cache-to: type=gha,scope=claude-dev,mode=max
-
-      # Context unchanged: point the new tags at the existing manifest instead of
-      # rebuilding. No layers move, so this is seconds rather than minutes.
-      - if: needs.plan.outputs.build_claude_dev != 'true'
-        name: Retag existing image
-        env:
-          NAMES: ${{ needs.plan.outputs.tag_names }}
-          CTX: ${{ needs.plan.outputs.claude_dev_ctx }}
-        run: |
-          set -euo pipefail
-          ARGS=""
-          for n in $NAMES; do ARGS="$ARGS -t $REGISTRY/$OWNER/claude-dev:$n"; done
-          docker buildx imagetools create $ARGS "$REGISTRY/$OWNER/claude-dev:ctx-$CTX"
-          echo "reused ctx-$CTX (no rebuild)"
-
-      # Only meaningful on a real build - a reused image passed these when it was built.
-      - if: needs.plan.outputs.build_claude_dev == 'true'
-        name: Smoke test
-        run: |
-          docker run --rm --entrypoint claude \
-            "$REGISTRY/$OWNER/claude-dev:ctx-${{ needs.plan.outputs.claude_dev_ctx }}" --version
 
   pharm-dev:
     needs: plan
@@ -208,6 +144,8 @@ jobs:
           cache-from: type=gha,scope=pharm-dev
           cache-to: type=gha,scope=pharm-dev,mode=max
 
+      # Context unchanged: point the new tags at the existing manifest instead of
+      # rebuilding. No layers move, so this is seconds rather than minutes.
       - if: needs.plan.outputs.build_paseo != 'true'
         name: Retag existing image
         env:
@@ -220,6 +158,7 @@ jobs:
           docker buildx imagetools create $ARGS "$REGISTRY/$OWNER/pharm-dev:ctx-$CTX"
           echo "reused ctx-$CTX (no rebuild)"
 
+      # Only meaningful on a real build - a reused image passed these when it was built.
       - if: needs.plan.outputs.build_paseo == 'true'
         name: Smoke test
         run: |

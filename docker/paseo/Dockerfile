@@ -1,4 +1,4 @@
-# Paseo daemon + web UI, run as its own standalone stack alongside claude-dev.
+# Paseo daemon + web UI, run as its own standalone stack.
 #
 # Paseo ships NO agent of its own - it orchestrates whatever agent CLIs are on PATH,
 # so this child image adds Claude Code, Codex and Pi to the official base.
@@ -27,10 +27,7 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uvbin
 
 FROM ghcr.io/getpaseo/paseo:0.16.2
 
-# Agent CLI pins - identical to the pins in claude-code/Dockerfile so both surfaces run
-# the same agent builds. Because this stack keeps its credentials ISOLATED from the
-# claude-config volume, these can be bumped independently without risking shared state:
-# unlike a full-share setup, drift here cannot corrupt claude-dev.
+# Agent CLI pins. Rebuild-to-upgrade: bump these and let CI publish a new image.
 ARG CLAUDE_CODE_VERSION="2.1.327"
 ARG CODEX_VERSION="0.170.0"
 ARG PI_VERSION="1.5.2"
@@ -76,12 +73,11 @@ RUN npm install -g \
 RUN node -e 'const v=process.versions.node.split(".").map(Number); if (v[0]<22 || (v[0]===22 && v[1]<19)) { console.error("FATAL: base Node "+process.versions.node+" is below pi >=22.19.0"); process.exit(1); } console.log("Node "+process.versions.node+" OK for claude/codex/pi")'
 
 # GitHub CLI from GitHub's official apt repo - bookworm's own gh package is years stale
-# (2.23.x). Same block as claude-code/Dockerfile, so both surfaces get the same gh. The
-# agents shell out to it for PR/issue work, so it belongs in the image rather than being
+# (2.23.x). The agents shell out to it for PR/issue work, so it belongs in the image rather than being
 # hand-installed into a container that gets replaced on every image bump.
 # No GH_CONFIG_DIR is needed here: the base sets XDG_CONFIG_HOME=/home/paseo/.config, so
 # gh's default config path already lands on the paseo-home volume and 'gh auth login'
-# survives recreation - unlike claude-dev, where /claude is the volume instead.
+# survives recreation.
 RUN mkdir -p -m 755 /etc/apt/keyrings \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
          -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
@@ -96,9 +92,7 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
 # Everyday CLI tooling. The base image is deliberately minimal - it ships git, curl and
 # little else - so agents and web terminals hit "command not found" on the basics.
 #
-# This overlaps claude-code/Dockerfile's apt line but is NOT the same set: ripgrep, jq,
-# sqlite3, unzip, gnupg and build-essential are shared, while zip/less/vim/nano/tree/rsync/
-# wget/file/htop are additions here. Four of claude-code's are deliberately left out -
+# Deliberately left out -
 # openssh-server and mosh (each a second ingress on a container reachable over a public
 # tunnel; Paseo already has web terminals), NodeSource nodejs (the base ships 22.23.5 and
 # the build asserts >=22.19 for Pi) and apt python3 (would collide with the uv-managed 3.13
@@ -263,7 +257,7 @@ RUN case "$(readlink -f /usr/local/bin/python3)" in \
 # base points at /home/paseo, the named volume that masks build-time writes at runtime. The
 # assert at the end is the same guard the interpreter itself gets above.
 #
-# --break-system-packages is REQUIRED, not cargo cult copied from claude-code. uv writes a
+# --break-system-packages is REQUIRED, not cargo cult. uv writes a
 # PEP 668 EXTERNALLY-MANAGED marker into its own managed interpreters ("This Python
 # installation is managed by uv and should not be modified"), so without the flag uv refuses
 # outright and the build dies here. Verified against the pinned uv 0.11.32 and CPython
@@ -309,8 +303,7 @@ RUN uv pip install --system --break-system-packages --python /usr/local/bin/pyth
     && youtube_transcript_api --help >/dev/null \
     && python3 -c 'import os, sys, yt_dlp, faster_whisper; ps = [os.path.dirname(m.__file__) for m in (yt_dlp, faster_whisper)]; print("->", *ps); sys.exit(1 if any(p.startswith("/home/paseo") for p in ps) else 0)'
 
-# Passwordless sudo, matching the devcontainers common-utils default and claude-code, which
-# runs as root outright. Agents need it for system packages not worth an image rebuild.
+# Passwordless sudo, matching the devcontainers common-utils default. Agents need it for system packages not worth an image rebuild.
 #
 # What it adds over uid 1000: DAC_OVERRIDE (0600 files on rw binds), setuid-root binaries on
 # the host via a rw bind mount, and NET_RAW. Not host root - no docker.sock, no --privileged,
@@ -369,7 +362,7 @@ RUN chmod +x /usr/local/bin/paseo-password-entrypoint
 # Keep tini as PID 1 exactly as the base image does - only the child process changes.
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/paseo-password-entrypoint"]
 
-# Match claude-dev's rebuild-to-upgrade model: no in-container self-update.
+# Rebuild-to-upgrade: no in-container self-update.
 ENV DISABLE_AUTOUPDATER=1 \
     DISABLE_UPDATES=1
 
