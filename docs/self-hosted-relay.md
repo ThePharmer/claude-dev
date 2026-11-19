@@ -112,7 +112,7 @@ Add a service in the same stack so the daemon reaches it by service name.
 
 ```yaml
   paseo-relay:
-    image: ghcr.io/thepharmer/paseo-relay:${PASEO_IMAGE_TAG:-latest}
+    image: ghcr.io/thepharmer/paseo-relay:${PHARM_DEV_IMAGE_TAG:-latest}
     container_name: paseo-relay
     restart: unless-stopped
     ports:

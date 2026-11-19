@@ -4,7 +4,7 @@
 
 services:
   paseo:
-    image: ghcr.io/thepharmer/pharm-dev:${PASEO_IMAGE_TAG:-latest}
+    image: ghcr.io/thepharmer/pharm-dev:${PHARM_DEV_IMAGE_TAG:-latest}
     container_name: pharm-dev
     restart: unless-stopped
     # AppArmor is loaded on the Docker host.

@@ -82,7 +82,7 @@ implemented" — so there is deliberately no `build:` directive here.
    |---|---|---|
    | `PASEO_PASSWORD` | yes | High-entropy. Deploy fails immediately if unset. |
    | `PASEO_HOSTNAMES` | for tunnel | DNS name(s) Paseo is reached by. IPs and localhost are allowed by default. |
-   | `PASEO_IMAGE_TAG` | no | Defaults to `latest`. Set to `paseo` to run the branch build. |
+   | `PHARM_DEV_IMAGE_TAG` | no | Defaults to `latest`. Set to `paseo` to run the branch build. |
    | `PASEO_RELAY_PUBLIC_ENDPOINT` | relay branch only | Not read on this branch. Required only by the compose on the `relay` branch; see "Relay" below. |
 
 4. **Deploy**, then authenticate each agent once (persists on the `paseo-home` volume):
