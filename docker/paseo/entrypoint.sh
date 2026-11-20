@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# Container entrypoint: password-secret bridge for the Paseo daemon, plus a supervised
-# T3 Code server running alongside it.
+# Container entrypoint: password-secret bridge for the Paseo daemon, seeding of the agent
+# CLIs onto the volume (seed-agent-clis.sh), plus a supervised T3 Code server running
+# alongside the daemon.
 #
 # PASSWORD BRIDGE. Paseo reads only the PASEO_PASSWORD env var - it does NOT read a
 # PASEO_PASSWORD_FILE. Docker/Compose secrets are delivered as files, so without this
@@ -46,6 +47,16 @@ fi
 # The password is now in the environment; drop the pointer so the daemon and every agent
 # subprocess it launches don't also inherit the secret's path.
 unset PASEO_PASSWORD_FILE
+
+# Agent CLIs live on the volume so T3 can update them (see seed-agent-clis.sh). Seed any
+# that are missing before anything that runs them starts. It never fails startup: on any
+# problem the image's copies stay on PATH.
+if [[ "$(id -u)" == "0" ]]; then
+    gosu paseo env -u PASEO_PASSWORD /usr/local/bin/paseo-seed-agent-clis \
+        || log "agent CLI seeding failed; the image's copies stay in use"
+else
+    /usr/local/bin/paseo-seed-agent-clis || log "agent CLI seeding failed; the image's copies stay in use"
+fi
 
 # Plain exec, exactly as before, when t3 is switched off or when the container was given a
 # command (`docker compose run paseo bash` and the like). A one-off command must keep its

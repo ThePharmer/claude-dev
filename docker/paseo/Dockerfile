@@ -27,7 +27,10 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uvbin
 
 FROM ghcr.io/getpaseo/paseo:0.16.2
 
-# Agent CLI pins. Rebuild-to-upgrade: bump these and let CI publish a new image.
+# Agent CLI SEED versions. At runtime the CLIs run from $AGENT_CLI_PREFIX on the volume
+# (see the AGENT_CLI_PREFIX block near the end, and seed-agent-clis.sh), and are updated
+# from T3 Code. These copies only seed a fresh volume and serve as the fallback, so bumping
+# them does NOT change a volume that is already seeded.
 ARG CLAUDE_CODE_VERSION="2.1.327"
 ARG CODEX_VERSION="0.170.0"
 ARG PI_VERSION="1.5.2"
@@ -359,14 +362,28 @@ RUN INDEX_HTML=/usr/local/lib/node_modules/@getpaseo/server/dist/server/web-ui/i
 # the volume) running next to the daemon. Sits between tini and the stock entrypoint, which
 # is left untouched. The file name predates the t3 role and is kept to avoid churn.
 COPY entrypoint.sh /usr/local/bin/paseo-password-entrypoint
-RUN chmod +x /usr/local/bin/paseo-password-entrypoint
+COPY seed-agent-clis.sh /usr/local/bin/paseo-seed-agent-clis
+RUN chmod +x /usr/local/bin/paseo-password-entrypoint /usr/local/bin/paseo-seed-agent-clis
 
 # Keep tini as PID 1 exactly as the base image does - only the child process changes.
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/paseo-password-entrypoint"]
 
-# Rebuild-to-upgrade: no in-container self-update.
+# No agent CLI ever updates itself. Updates happen only when someone clicks update in T3
+# Code, which runs `npm install -g --prefix $AGENT_CLI_PREFIX ...` (see seed-agent-clis.sh),
+# or runs npm by hand. Neither of the variables below blocks that npm route.
+# - Claude Code: DISABLE_AUTOUPDATER stops background updates; DISABLE_UPDATES also makes
+#   `claude update` / `claude install` refuse, so npm via T3 stays the one update path.
+# - Pi: PI_SKIP_VERSION_CHECK stops its startup version check. Pi never auto-installs.
+# - Codex: its startup update check is a config key, set system-wide below. User config
+#   in ~/.codex/config.toml takes precedence, so it can still be switched back on there.
+# T3 Code's own "update available" notices stay on: that is the one place to look.
 ENV DISABLE_AUTOUPDATER=1 \
-    DISABLE_UPDATES=1
+    DISABLE_UPDATES=1 \
+    PI_SKIP_VERSION_CHECK=1
+RUN mkdir -p /etc/codex \
+    && printf '# Image default (lowest precedence). Updates come from T3 Code; see the Dockerfile.\ncheck_for_update_on_startup = false\n' \
+         > /etc/codex/config.toml \
+    && chmod 0644 /etc/codex/config.toml
 
 # Paseo's web terminals resolve their shell as `env.SHELL || "/bin/sh"`
 # (@getpaseo/server dist/server/terminal/terminal.js, resolveDefaultTerminalShell).
@@ -446,6 +463,18 @@ ENV PATH="${PATH}:/home/paseo/.local/opt/android-sdk/platform-tools:/home/paseo/
 # written there at build time, and it is appended so image tools still win on PATH.
 ENV PATH="${PATH}:/home/paseo/.local/bin"
 
+# Agent CLIs on the volume, so T3 Code can update them as paseo and the updates survive
+# recreation. seed-agent-clis.sh (run by the entrypoint) fills this npm prefix from the
+# image's copies on a fresh volume. PREPENDED, unlike the entries above, because these
+# must win over the image's own claude/codex/pi in /usr/local/bin for the daemon, T3,
+# terminals and agents alike. Runtime-only, like the entries above: nothing may be written
+# there at build time (the volume would mask it), which the check below enforces. The path
+# avoids "/.local/share/claude/", which T3 treats as a native Claude install.
+ENV AGENT_CLI_PREFIX=/home/paseo/.local/share/agent-clis
+ENV PATH="${AGENT_CLI_PREFIX}/bin:${PATH}"
+RUN test ! -e "$AGENT_CLI_PREFIX" \
+    && echo "agent CLI prefix is runtime-only: $AGENT_CLI_PREFIX"
+
 # Login shells would otherwise lose every PATH entry above: Debian's /etc/profile assigns
 # PATH outright, and Codex runs its commands through `bash -lc`. /etc/profile sources
 # /etc/profile.d/*.sh AFTER that assignment, so restore the image's PATH there. It is
@@ -458,6 +487,9 @@ RUN printf '# Generated at image build: restore the image PATH that /etc/profile
     && case "$(bash -lc 'echo "$PATH"')" in \
          *:/home/paseo/.local/opt/android-sdk/platform-tools:*) ;; \
          *) echo "FATAL: login shells do not get the image PATH: $(bash -lc 'echo "$PATH"')"; exit 1 ;; esac \
+    && case ":$(bash -lc 'echo "$PATH"'):" in \
+         *":${AGENT_CLI_PREFIX}/bin:"*) ;; \
+         *) echo "FATAL: login shells do not get the agent CLI prefix on PATH"; exit 1 ;; esac \
     && echo "login-shell PATH OK"
 
 EXPOSE 6767

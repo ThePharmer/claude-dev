@@ -11,10 +11,12 @@ Paseo ships no agent of its own — it orchestrates whatever agent CLIs are on `
 runs them as **local subprocesses**. That's why this is a child image with Claude Code,
 Codex and Pi baked in.
 
-- **`Dockerfile`** — `ghcr.io/getpaseo/paseo` plus the three agent CLIs at pinned versions,
+- **`Dockerfile`** — `ghcr.io/getpaseo/paseo` plus seed copies of the three agent CLIs,
   plus `uv` and a managed Python (see below).
-- **`entrypoint.sh`** — password-secret bridge that fails closed, and supervisor for
-  `t3 serve` (see below).
+- **`entrypoint.sh`** — password-secret bridge that fails closed, agent CLI seeding, and
+  supervisor for `t3 serve` (see below).
+- **`seed-agent-clis.sh`** — copies the agent CLIs onto the volume so T3 Code can update
+  them (see "Updating Paseo and the agent CLIs").
 - **`bashrc.sh`** — interactive-shell defaults for the web terminals; installed to
   `/etc/paseo-bashrc.sh` rather than a home directory (see troubleshooting).
 - **`../compose.yaml`** — the stack itself, one level up, kept there from when it defined
@@ -97,8 +99,48 @@ implemented" — so there is deliberately no `build:` directive here.
    service token, then enter `CF-Access-Client-Id` and `CF-Access-Client-Secret` as custom
    headers under Direct connection > Advanced. The relay is the other route; see "Relay" below.
 
-To upgrade later, re-pull the stack in Portainer after CI publishes a new tag. Agents
-cannot self-update inside the container.
+To upgrade later, see "Updating Paseo and the agent CLIs" below.
+
+## Updating Paseo and the agent CLIs
+
+Nothing here updates itself. There are two update paths, one per kind of software.
+
+**Paseo: bump the image.** Change the `FROM ghcr.io/getpaseo/paseo:<version>` line in the
+`Dockerfile` and push to `main`. CI builds the image; then re-pull the stack in Portainer.
+This is the route Paseo's own Docker docs describe. Paseo's in-app update button does not
+work here: it runs `npm install -g` as `paseo` against root-owned `/usr/local`, and anything
+installed there would be lost when the container is recreated anyway.
+
+**Claude Code, Codex and Pi: update from T3 Code.** They run from an npm prefix on the
+volume, `$AGENT_CLI_PREFIX` (`/home/paseo/.local/share/agent-clis`), whose `bin` comes ahead
+of the image's copies on `PATH` for the daemon, T3, terminals and agents. (In terminals and
+T3, `~/.bashrc` puts `~/.local/bin` ahead of it, so never install a `claude`, `codex` or `pi`
+there: it would win in those but not in the daemon.) T3's provider update button runs
+`npm install -g --prefix "$AGENT_CLI_PREFIX" <package>@<version>` as `paseo`, which works
+there and persists across redeploys. No redeploy is needed, and running agents and t3 are
+not restarted.
+
+- **Fresh volume:** the entrypoint runs `seed-agent-clis.sh`, which copies the image's
+  versions in (no network, about 5 seconds). A CLI already on the volume is never touched.
+- **Image ARGs are seed versions only.** Bumping `CLAUDE_CODE_VERSION` and the others does
+  not change a seeded volume. Every start logs both versions, for example
+  `[agent-clis] @openai/codex 0.171.0 (volume; image has 0.170.0)`.
+- **Roll back** one CLI: `npm install -g --prefix "$AGENT_CLI_PREFIX" @openai/codex@0.170.0`.
+  **Reset** it to the image's version: delete its folder under
+  `$AGENT_CLI_PREFIX/lib/node_modules/` and restart the container.
+- **Codex caution:** its bubblewrap sandbox depends on the seccomp/AppArmor profiles in
+  `security/`, which were checked against a specific Codex version. After a Codex update,
+  check the sandbox from inside the container, since that runs the volume copy:
+  `codex sandbox -- echo sandbox-ok` should print `sandbox-ok` (checked on Codex 0.170.0).
+  `security/verify-host.sh` does not cover this: it starts a
+  throwaway container with no volume, so it only ever tests the image's seed version. If
+  the sandbox breaks, roll back as above.
+- **Not through sudo:** `sudo`'s `secure_path` leaves this prefix out, so `sudo claude` runs
+  the image copy and `sudo npm install -g` writes to `/usr/local`, which recreation wipes.
+- **Auto-update is off everywhere:** Claude Code via `DISABLE_AUTOUPDATER` and
+  `DISABLE_UPDATES` (the latter also blocks `claude update`, leaving T3 as the one path), Pi
+  via `PI_SKIP_VERSION_CHECK`, Codex's startup check via `/etc/codex/config.toml`. T3's own
+  "update available" notices stay on.
 
 ## Python and uv
 

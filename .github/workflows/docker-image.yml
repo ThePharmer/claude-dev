@@ -164,4 +164,18 @@ jobs:
           docker run --rm --entrypoint pi     "$IMAGE" --version
           docker run --rm --entrypoint python3 "$IMAGE" --version
           docker run --rm --entrypoint uv     "$IMAGE" --version
+          # Seed the agent CLIs into the (here empty) volume prefix, then prove PATH now
+          # resolves each one there, not to the image copy, and that each still runs.
+          # As paseo, like the entrypoint, so a permissions regression on a fresh volume
+          # fails here (the image's /home/paseo stands in for a fresh named volume).
+          docker run --rm --user paseo --entrypoint bash "$IMAGE" -c '
+            set -euo pipefail
+            paseo-seed-agent-clis
+            for b in claude codex pi; do
+              case "$(command -v "$b")" in
+                "$AGENT_CLI_PREFIX"/bin/*) ;;
+                *) echo "FATAL: $b resolves to $(command -v "$b"), not the seeded prefix"; exit 1 ;;
+              esac
+              "$b" --version
+            done'
 
