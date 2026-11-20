@@ -6,6 +6,8 @@ services:
   paseo:
     image: ghcr.io/thepharmer/pharm-dev:${PHARM_DEV_IMAGE_TAG:-latest}
     container_name: pharm-dev
+    # Fixed hostname so T3 Code labels this environment by name, not the container ID.
+    hostname: docker-container
     restart: unless-stopped
     # AppArmor is loaded on the Docker host.
     # The seccomp file must also be copied into Portainer at this path.
