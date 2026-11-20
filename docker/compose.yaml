@@ -31,9 +31,9 @@ services:
       PASEO_HOSTNAMES: ${PASEO_HOSTNAMES}
       # cloudflared reaches the daemon across the docker bridge, not loopback.
       PASEO_TRUSTED_PROXIES: loopback,172.16.0.0/12
-      # Relay stays off. The phone connects through Cloudflare Access with service-token
-      # headers (getpaseo/paseo#4290). The opt-in self-hosted relay is compose.relay.yaml.
-      PASEO_RELAY_ENABLED: "false"
+      # PASEO_RELAY_ENABLED is left unset on purpose, so the daemon uses Paseo's default
+      # relay. compose.relay.yaml swaps in a self-hosted one; set it to "false" to turn the
+      # relay off entirely.
     healthcheck:
       test:
         - CMD

@@ -94,7 +94,7 @@ implemented" — so there is deliberately no `build:` directive here.
 6. **Phone access.** The Android app connects through the same hostname and Access policy
    using service-token headers (getpaseo/paseo#4290): add a Service Auth policy with a
    service token, then enter `CF-Access-Client-Id` and `CF-Access-Client-Secret` as custom
-   headers under Direct connection > Advanced. The relay alternative is on hold; see below.
+   headers under Direct connection > Advanced. The relay is the other route; see "Relay" below.
 
 To upgrade later, re-pull the stack in Portainer after CI publishes a new tag. Agents
 cannot self-update inside the container.
@@ -231,14 +231,12 @@ hook or config knob for the head. Notes for whoever touches it next:
   response body), so the precompressed variants are **never served for this file** today.
   Regenerating is free insurance if that ever changes.
 
-## Relay: self-hosted, for the phone app (on hold)
+## Relay
 
-**Status:** not deployed. The phone connects through Cloudflare Access with service-token
-headers using the app build from getpaseo/paseo#4290, so `../compose.yaml` keeps
-`PASEO_RELAY_ENABLED: "false"` and has no relay service. The relay is opt-in through
-`../compose.relay.yaml`, which adds the `paseo-relay` service (upstream's published
-`ghcr.io/getpaseo/paseo-relay` image, pinned by digest) and the daemon's relay settings. Layer it
-on if the header path ever stops being viable.
+**Status:** `../compose.yaml` leaves `PASEO_RELAY_ENABLED` unset, so the daemon uses Paseo's
+default relay. A self-hosted relay is opt-in through `../compose.relay.yaml`, which adds the
+`paseo-relay` service (upstream's published `ghcr.io/getpaseo/paseo-relay` image, pinned by
+digest) and points the daemon at it. The rest of this section describes the self-hosted setup.
 
 The stack runs its own copy of [getpaseo/paseo-relay](https://github.com/getpaseo/paseo-relay)
 as the `paseo-relay` service. The daemon holds an **outbound** connection to it over the
@@ -326,8 +324,9 @@ upgrades; keypair and `server-id` live on the volume.
 
 ### Rollback
 
-Set `PASEO_RELAY_ENABLED` to `"false"`, remove the `paseo-relay` service and the
-`depends_on`, redeploy. Paired phones stay valid for a later re-enable.
+Drop the `compose.relay.yaml` layer (or the blocks pasted from it) and redeploy; the daemon goes
+back to Paseo's default relay. To turn the relay off entirely, set `PASEO_RELAY_ENABLED` to
+`"false"`. Paired phones stay valid for a later re-enable.
 
 ## Troubleshooting
 

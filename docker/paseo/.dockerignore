@@ -1,0 +1,3 @@
+# Docs never belong in the image. The CI content tag also ignores *.md, so this keeps the
+# image and the tag consistent: a docs-only change can neither rebuild nor alter the image.
+**/*.md

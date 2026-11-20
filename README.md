@@ -25,8 +25,8 @@ Setup, credentials, security profiles and troubleshooting are in
 - A push to `main` publishes `:latest`, the commit SHA and a `ctx-<hash>` content tag.
 - Other branches build only when run manually (`gh workflow run docker-image.yml --ref <branch>`)
   and are tagged with the branch name.
-- The image is rebuilt only when `docker/paseo/` changes. Otherwise CI points the new tags at
-  the existing image. The manual run's `rebuild` input forces a full build.
+- The image is rebuilt only when `docker/paseo/` changes, not counting its Markdown docs.
+  Otherwise CI points the new tags at the existing image. The manual run's `rebuild` input forces a full build.
 
 ## Repo layout
 

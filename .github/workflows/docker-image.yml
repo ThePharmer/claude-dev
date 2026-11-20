@@ -49,13 +49,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 'git rev-parse HEAD:<dir>' is the tree object id of that directory - a content
-      # hash that git already maintains. No file walking or hashing needed.
+      # Hash of the build context as git records it (mode, blob id and path of every file),
+      # minus Markdown docs: they never reach the image (docker/paseo/.dockerignore drops
+      # them from the build context), so a docs-only change retags instead of rebuilding.
       - id: ctx
         name: Compute content tags
         run: |
           set -euo pipefail
-          PASEO=$(git rev-parse "HEAD:docker/paseo" | cut -c1-12)
+          PASEO=$(git ls-tree -r HEAD -- docker/paseo | grep -v '\.md$' | sha256sum | cut -c1-12)
           echo "paseo=$PASEO"           >> "$GITHUB_OUTPUT"
           echo "content tag: pharm-dev=$PASEO"
 
