@@ -13,7 +13,8 @@ Codex and Pi baked in.
 
 - **`Dockerfile`** — `ghcr.io/getpaseo/paseo` plus the three agent CLIs at pinned versions,
   plus `uv` and a managed Python (see below).
-- **`entrypoint.sh`** — password-secret bridge; fails closed (see below).
+- **`entrypoint.sh`** — password-secret bridge that fails closed, and supervisor for
+  `t3 serve` (see below).
 - **`bashrc.sh`** — interactive-shell defaults for the web terminals; installed to
   `/etc/paseo-bashrc.sh` rather than a home directory (see troubleshooting).
 - **`../compose.yaml`** — the stack itself, one level up, kept there from when it defined
@@ -197,6 +198,29 @@ the stock entrypoint unmodified, with `tini` still PID 1.
 
 With the Portainer env-var approach the bridge is inert and the fail-closed check is what
 matters — but it means switching to a mounted secret later needs no image change.
+
+### T3 Code (`t3 serve`)
+
+T3 Code runs in this container next to Paseo, from the copy installed on the volume at
+`~/.local/bin/t3`. The entrypoint starts it as the `paseo` user in `/srv/projects` and
+restarts it 5 seconds after any exit. If t3 isn't installed, it checks again every 60 seconds.
+`t3 service install` can't be used here because it needs systemd.
+
+- Paseo is still the main process. The entrypoint now runs it as a child instead of
+  `exec`ing it, so that container stop can send SIGTERM to both Paseo and t3. When Paseo
+  exits, t3 is stopped too and the container exits with Paseo's status. The restart policy
+  and healthcheck track Paseo only.
+- t3 runs without `PASEO_PASSWORD` in its environment. The `paseo` CLI still works for
+  agents started from T3 (it authenticates locally without it).
+- It sources `~/.bashrc` for the same `PATH` a web terminal gets, `~/.local/bin` first.
+- t3's own output goes to `~/.t3/serve.log`, with the previous run kept as
+  `serve.log.1`. It stays out of the container logs because every start prints a pairing
+  token. Supervisor lines (`[t3-serve] ...`) still go to the container logs.
+- A container started with a command (`docker compose run paseo bash`) skips t3 entirely.
+- To pick up a `t3 update`, kill the `t3 serve` process. The loop starts the new version.
+  Don't also start `t3 serve` by hand: two servers on one `~/.t3` will conflict.
+- Set `T3_SERVE_ENABLED=0` in the stack to turn all of this off. The entrypoint then
+  `exec`s the stock entrypoint exactly as before.
 
 ## The manifest patch: why Access was bouncing `/manifest.json`
 

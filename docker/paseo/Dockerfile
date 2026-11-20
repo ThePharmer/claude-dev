@@ -353,9 +353,11 @@ RUN INDEX_HTML=/usr/local/lib/node_modules/@getpaseo/server/dist/server/web-ui/i
     && node -e 'const z=require("zlib"),f=require("fs"),p=process.argv[1],b=f.readFileSync(p); f.writeFileSync(p+".gz",z.gzipSync(b,{level:9})); f.writeFileSync(p+".br",z.brotliCompressSync(b)); if(!z.gunzipSync(f.readFileSync(p+".gz")).equals(b)||!z.brotliDecompressSync(f.readFileSync(p+".br")).equals(b)){console.error("FATAL: recompressed index.html does not round-trip");process.exit(1)}' "$INDEX_HTML" \
     && echo "Patched Paseo web UI: manifest link sends credentials"
 
-# Password-secret bridge. Paseo reads only PASEO_PASSWORD; a Compose secret arrives as a
-# FILE, so without this the secret is silently ignored and a tunnel-reachable daemon comes
-# up UNAUTHENTICATED. Sits between tini and the stock entrypoint, which is left untouched.
+# Password-secret bridge plus T3 Code supervisor. Paseo reads only PASEO_PASSWORD; a
+# Compose secret arrives as a FILE, so without this the secret is silently ignored and a
+# tunnel-reachable daemon comes up UNAUTHENTICATED. It also keeps `t3 serve` (installed on
+# the volume) running next to the daemon. Sits between tini and the stock entrypoint, which
+# is left untouched. The file name predates the t3 role and is kept to avoid churn.
 COPY entrypoint.sh /usr/local/bin/paseo-password-entrypoint
 RUN chmod +x /usr/local/bin/paseo-password-entrypoint
 
