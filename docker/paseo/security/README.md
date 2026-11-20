@@ -29,11 +29,11 @@ container's inherited seccomp filter cannot be relaxed without recreating it.
 
 ## Install and test on the Docker host
 
-From the checkout shared at `/srv/projects/claude-dev`, run:
+From the repo root on the Docker host, run:
 
 ```bash
-sudo bash /srv/projects/claude-dev/docker/paseo/security/install-host.sh
-sudo bash /srv/projects/claude-dev/docker/paseo/security/verify-host.sh
+sudo bash docker/paseo/security/install-host.sh
+sudo bash docker/paseo/security/verify-host.sh
 ```
 
 The installer requires AppArmor enabled, `apparmor_parser`, and Python 3. On Ubuntu,
